@@ -10,6 +10,7 @@ add_library(mcserver_core
     server/ClientSession.cpp
     server/Server.cpp
 )
+add_dependencies(mcserver_core mcserver_data)
 
 target_include_directories(mcserver_core PUBLIC
     "${CMAKE_SOURCE_DIR}/include"
@@ -23,12 +24,12 @@ target_link_libraries(mcserver_core PUBLIC
 
 target_compile_features(mcserver_core PUBLIC cxx_std_23)
 
-# Points the registry loader at the real vanilla registry JSON bundled in data/registries/
-# (see repo memory for how it was extracted from the client jar). Dev-mode: points straight
-# at the source tree rather than an installed copy.
+# Points the registry and tag loaders at build-time data extracted from the official
+# Minecraft server bundle.
 target_compile_definitions(mcserver_core PRIVATE
-    MCSERVER_REGISTRY_DATA_DIR="${CMAKE_SOURCE_DIR}/data/registries"
-    MCSERVER_TAG_DATA_DIR="${CMAKE_SOURCE_DIR}/share/data/minecraft/tags"
+    MCSERVER_REGISTRY_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/registries"
+    MCSERVER_TAG_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/data/minecraft/tags"
+    MCSERVER_VANILLA_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/data/minecraft"
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
