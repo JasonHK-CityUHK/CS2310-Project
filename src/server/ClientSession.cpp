@@ -5,7 +5,12 @@
 #include "mcserver/util/Md5.hpp"
 
 #include <iostream>
+#include <bit>
+#include <chrono>
+#include <cstdint>
+#include <cmath>
 #include <span>
+#include <vector>
 
 namespace mcserver::server {
 
@@ -40,14 +45,76 @@ constexpr int32_t kConfigClientboundKnownPacks = 0x0F;
 
 constexpr int32_t kConfigServerboundKnownPacks = 0x07;
 constexpr int32_t kConfigServerboundFinishConfigurationAck = 0x03;
+
+// Play clientbound packet IDs for protocol 777 / Minecraft 26.3.
+constexpr int32_t kPlayClientboundLogin = 0x32;
+constexpr int32_t kPlayClientboundGameEvent = 0x27;
+constexpr int32_t kPlayClientboundPlayerPosition = 0x49;
+constexpr int32_t kPlayClientboundSetCenterChunk = 0x60;
+constexpr int32_t kPlayClientboundChunkBatchFinished = 0x0B;
+constexpr int32_t kPlayClientboundChunkBatchStart = 0x0C;
+constexpr int32_t kPlayClientboundChunkData = 0x2E;
+constexpr int32_t kPlayClientboundKeepAlive = 0x2D;
+
+constexpr int32_t kPlayServerboundConfirmTeleportation = 0x00;
+constexpr int32_t kPlayServerboundKeepAlive = 0x1C;
+constexpr int32_t kPlayServerboundSetPlayerPosition = 0x1E;
+constexpr int32_t kPlayServerboundSetPlayerPositionAndRotation = 0x1F;
+constexpr int32_t kPlayServerboundSetPlayerRotation = 0x20;
+constexpr int32_t kPlayServerboundSetPlayerMovementFlags = 0x21;
+constexpr int32_t kPlayServerboundPlayerLoaded = 0x2C;
 } // namespace
 
-ClientSession::ClientSession(std::shared_ptr<net::Connection> connection) : connection_(std::move(connection)) {}
+void writeBitSet(net::ByteWriter& writer, uint64_t bits) {
+    size_t byteCount = bits == 0 ? 0 : (64 - std::countl_zero(bits) + 7) / 8;
+    writer.writeVarInt(static_cast<int32_t>(byteCount));
+    for (size_t index = 0; index < byteCount; ++index) {
+        writer.writeUByte(static_cast<uint8_t>(bits >> (index * 8)));
+    }
+}
+
+void writeFullLightArray(net::ByteWriter& writer) {
+    writer.writeVarInt(2048);
+    for (int index = 0; index < 2048; ++index) { writer.writeUByte(0xFF); }
+}
+
+void writePalettedContainer(net::ByteWriter& writer, bool ground) {
+    writer.writeUByte(ground ? 4 : 0);
+    if (ground) {
+        writer.writeVarInt(2); // air and stone local palette
+        writer.writeVarInt(0);
+        writer.writeVarInt(1); // global block state ID: stone
+        std::vector<uint64_t> data(256, 0);
+        for (int index = 0; index < 256; ++index) {
+            size_t bit = static_cast<size_t>(index) * 4;
+            data[bit / 64] |= uint64_t{1} << (bit % 64);
+        }
+        for (uint64_t word : data) { writer.writeLong(static_cast<int64_t>(word)); }
+    } else {
+        writer.writeVarInt(0); // single-valued air palette
+    }
+}
+
+std::vector<std::byte> flatChunkData() {
+    net::ByteWriter data;
+    for (int section = 0; section < 24; ++section) {
+        bool ground = section == 4;
+        data.writeShort(ground ? 256 : 0);
+        data.writeShort(0); // fluid count
+        writePalettedContainer(data, ground);
+        data.writeUByte(0); // single-valued biome palette
+        data.writeVarInt(41); // plains biome registry ID
+    }
+    return data.take();
+}
+
+ClientSession::ClientSession(std::shared_ptr<net::Connection> connection)
+    : connection_(std::move(connection)), keepAliveTimer_(connection_->socket().get_executor()) {}
 
 void ClientSession::start() {
     auto self = shared_from_this();
     connection_->setPacketHandler([self](int32_t id, ByteReader& reader) { self->handlePacket(id, reader); });
-    connection_->setDisconnectHandler([self]() { /* no per-session cleanup needed yet (no Play state) */ });
+    connection_->setDisconnectHandler([self]() { self->keepAliveTimer_.cancel(); });
     connection_->start();
 }
 
@@ -57,10 +124,7 @@ void ClientSession::handlePacket(int32_t packetId, ByteReader& reader) {
     case ProtocolState::Status: handleStatus(packetId, reader); break;
     case ProtocolState::Login: handleLogin(packetId, reader); break;
     case ProtocolState::Configuration: handleConfiguration(packetId, reader); break;
-    case ProtocolState::Play:
-        // Play phase is not implemented yet.
-        connection_->close();
-        break;
+    case ProtocolState::Play: handlePlay(packetId, reader); break;
     }
 }
 
@@ -179,14 +243,164 @@ void ClientSession::handleConfiguration(int32_t packetId, ByteReader& reader) {
         sendFinishConfiguration();
     } else if (packetId == kConfigServerboundFinishConfigurationAck) {
         connection_->setState(ProtocolState::Play);
-        // Play-phase gameplay (Phase 4 onward) is not implemented yet.
-        std::cerr << "[mcserver] player '" << playerName_
-                  << "' reached Play state, which isn't implemented yet; closing connection.\n";
-        connection_->close();
+        enterPlay();
     } else {
         // Client Information / Plugin Message / Cookie Response / etc. — not needed yet, ignore.
         (void)reader;
     }
 }
+
+void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
+    switch (packetId) {
+    case kPlayServerboundConfirmTeleportation:
+        (void)reader.readVarInt();
+        break;
+    case kPlayServerboundKeepAlive:
+        (void)reader.readLong();
+        break;
+    case kPlayServerboundSetPlayerPosition:
+        positionX_ = reader.readDouble();
+        positionY_ = reader.readDouble();
+        positionZ_ = reader.readDouble();
+        onGround_ = reader.readBool();
+        break;
+    case kPlayServerboundSetPlayerPositionAndRotation:
+        positionX_ = reader.readDouble();
+        positionY_ = reader.readDouble();
+        positionZ_ = reader.readDouble();
+        yaw_ = reader.readFloat();
+        pitch_ = reader.readFloat();
+        onGround_ = reader.readBool();
+        break;
+    case kPlayServerboundSetPlayerRotation:
+        yaw_ = reader.readFloat();
+        pitch_ = reader.readFloat();
+        onGround_ = reader.readBool();
+        break;
+    case kPlayServerboundSetPlayerMovementFlags:
+        onGround_ = reader.readBool();
+        break;
+    case kPlayServerboundPlayerLoaded:
+        break;
+    default:
+        // Other Play packets are intentionally ignored until their gameplay
+        // state is implemented.
+        (void)reader;
+        break;
+    }
+
+    if (!std::isfinite(positionX_) || !std::isfinite(positionY_) || !std::isfinite(positionZ_) ||
+        !std::isfinite(yaw_) || !std::isfinite(pitch_)) {
+        connection_->close();
+    }
+}
+
+void ClientSession::scheduleKeepAlive() {
+    auto self = shared_from_this();
+    keepAliveTimer_.expires_after(std::chrono::seconds(10));
+    keepAliveTimer_.async_wait([self](asio::error_code error) {
+        if (error || self->connection_->state() != ProtocolState::Play) { return; }
+
+        ByteWriter body;
+        auto now = std::chrono::steady_clock::now().time_since_epoch();
+        body.writeLong(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+        self->connection_->send(kPlayClientboundKeepAlive, body);
+        self->scheduleKeepAlive();
+    });
+}
+
+void ClientSession::enterPlay() {
+    sendPlayLogin();
+    sendInitialSpawn();
+    scheduleKeepAlive();
+}
+
+void ClientSession::sendPlayLogin() {
+        ByteWriter body;
+        body.writeInt(1);                 // Entity ID
+        body.writeBool(false);            // Is hardcore
+        body.writeVarInt(1);              // Dimension names array
+        body.writeString("minecraft:overworld");
+        body.writeVarInt(20);             // Max players (ignored)
+        body.writeVarInt(8);              // View distance
+        body.writeVarInt(8);              // Simulation distance
+        body.writeBool(false);             // Reduced debug info
+        body.writeBool(true);              // Enable respawn screen
+        body.writeBool(false);            // Do limited crafting
+        body.writeVarInt(0);              // Dimension type: sorted dimension_type ID
+        body.writeString("minecraft:overworld");
+        body.writeLong(0);                // Hashed seed
+        body.writeVarInt(1);              // Creative
+        body.writeVarInt(0);              // Previous game mode: undefined
+        body.writeBool(false);            // Is debug
+        body.writeBool(true);             // Is flat
+        body.writeBool(false);            // Has death location
+        body.writeVarInt(0);              // Portal cooldown
+        body.writeVarInt(63);             // Sea level
+        body.writeBool(false);            // Offline mode
+        body.writeBool(false);            // Does not enforce secure chat
+        connection_->send(kPlayClientboundLogin, body);
+    }
+
+void ClientSession::sendInitialSpawn() {
+        ByteWriter center;
+        center.writeVarInt(0);
+        center.writeVarInt(0);
+        connection_->send(kPlayClientboundSetCenterChunk, center);
+
+        ByteWriter event;
+        event.writeUByte(13);             // Start waiting for level chunks
+        event.writeFloat(0.0f);
+        connection_->send(kPlayClientboundGameEvent, event);
+
+        ByteWriter position;
+        position.writeVarInt(0);           // Teleport ID
+        position.writeDouble(0.5);
+        position.writeDouble(65.0);
+        position.writeDouble(0.5);
+        position.writeDouble(0.0);
+        position.writeDouble(0.0);
+        position.writeDouble(0.0);
+        position.writeFloat(0.0f);
+        position.writeFloat(0.0f);
+        position.writeInt(0);              // Absolute position and rotation
+        connection_->send(kPlayClientboundPlayerPosition, position);
+        sendInitialChunks();
+}
+
+    void ClientSession::sendInitialChunks() {
+        ByteWriter start;
+        connection_->send(kPlayClientboundChunkBatchStart, start);
+
+        for (int32_t chunkZ = -1; chunkZ <= 1; ++chunkZ) {
+            for (int32_t chunkX = -1; chunkX <= 1; ++chunkX) {
+                ByteWriter body;
+                body.writeInt(chunkX);
+                body.writeInt(chunkZ);
+
+                body.writeVarInt(0); // heightmaps are optional; the client initializes them
+
+                auto chunkData = flatChunkData();
+                body.writeVarInt(static_cast<int32_t>(chunkData.size()));
+                body.writeBytes(chunkData);
+                body.writeVarInt(0); // Block entities
+
+                constexpr uint64_t fullLightMask = (uint64_t{1} << 26) - 1;
+                writeBitSet(body, fullLightMask); // Sky light mask
+                writeBitSet(body, fullLightMask); // Block light mask
+                writeBitSet(body, 0); // Empty sky light mask
+                writeBitSet(body, 0); // Empty block light mask
+                body.writeVarInt(26); // Sky light arrays
+                for (int index = 0; index < 26; ++index) { writeFullLightArray(body); }
+                body.writeVarInt(26); // Block light arrays
+                for (int index = 0; index < 26; ++index) { writeFullLightArray(body); }
+                connection_->send(kPlayClientboundChunkData, body);
+            }
+        }
+
+        ByteWriter finished;
+        finished.writeVarInt(9);
+        connection_->send(kPlayClientboundChunkBatchFinished, finished);
+    }
 
 } // namespace mcserver::server
