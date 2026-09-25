@@ -28,6 +28,7 @@ private:
     void enterConfiguration();
     void sendKnownPacks();
     void sendRegistryData();
+    void sendUpdateTags();
     void sendFinishConfiguration();
 
     std::shared_ptr<net::Connection> connection_;

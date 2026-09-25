@@ -1,77 +1,96 @@
 #include "mcserver/protocol/Registries.hpp"
+#include "mcserver/protocol/JsonToNbt.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <algorithm>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <array>
+
+#ifndef MCSERVER_REGISTRY_DATA_DIR
+#error "MCSERVER_REGISTRY_DATA_DIR must be defined by the build (see src/CMakeLists.txt)"
+#endif
 
 namespace mcserver::protocol {
 
 namespace {
 
-nbt::CompoundTag buildOverworldDimensionType() {
-    // Mirrors vanilla's data/minecraft/dimension_type/overworld.json.
-    // monster_spawn_light_level must be a full IntProvider object; a bare int is rejected by the codec.
-    nbt::CompoundTag monsterSpawnLightLevel{
-        {"type", std::string("minecraft:uniform")},
-        {"min_inclusive", 0},
-        {"max_inclusive", 7},
-    };
-    return nbt::CompoundTag{
-        {"piglin_safe", false},
-        {"has_raids", true},
-        {"monster_spawn_light_level", std::move(monsterSpawnLightLevel)},
-        {"monster_spawn_block_light_limit", 0},
-        {"natural", true},
-        {"ambient_light", 0.0f},
-        {"infiniburn", std::string("#minecraft:infiniburn_overworld")},
-        {"respawn_anchor_works", false},
-        {"has_skylight", true},
-        {"bed_works", true},
-        {"effects", std::string("minecraft:overworld")},
-        {"min_y", -64},
-        {"height", 384},
-        {"logical_height", 384},
-        {"coordinate_scale", 1.0},
-        {"ultrawarm", false},
-        {"has_ceiling", false},
-    };
+std::string readFile(std::filesystem::path const& path) {
+    std::ifstream file(path, std::ios::binary);
+    std::ostringstream oss;
+    oss << file.rdbuf();
+    return oss.str();
 }
 
-nbt::CompoundTag buildPlainsBiome() {
-    // Mirrors vanilla's data/minecraft/worldgen/biome/plains.json (minus optional fields).
-    nbt::CompoundTag moodSound{
-        {"sound", std::string("minecraft:ambient.cave")},
-        {"tick_delay", 6000},
-        {"block_search_extent", 8},
-        {"offset", 2.0},
-    };
-    nbt::CompoundTag effects{
-        {"sky_color", 7842047},
-        {"fog_color", 12638463},
-        {"water_color", 4159204},
-        {"water_fog_color", 329011},
-        {"mood_sound", std::move(moodSound)},
-    };
-    return nbt::CompoundTag{
-        {"has_precipitation", true},
-        {"temperature", 0.8f},
-        {"downfall", 0.4f},
-        {"effects", std::move(effects)},
-    };
+// Loads one registry's worth of entries from a flat directory of `<entry>.json` files.
+Registry loadRegistryDir(std::string registryId, std::filesystem::path const& dir) {
+    Registry registry;
+    registry.id = std::move(registryId);
+
+    std::vector<std::filesystem::path> jsonFiles;
+    for (auto const& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".json") { jsonFiles.push_back(entry.path()); }
+    }
+    // Sort for reproducible entry ordering (and thus reproducible numeric IDs) across runs.
+    std::sort(jsonFiles.begin(), jsonFiles.end());
+
+    for (auto const& path : jsonFiles) {
+        std::string entryId = "minecraft:" + path.stem().string();
+        std::string json = readFile(path);
+        try {
+            nlohmann::json parsed = nlohmann::json::parse(json);
+            registry.entries.push_back({std::move(entryId), jsonValueToNbt(parsed)});
+        } catch (std::exception const& e) {
+            std::cerr << "[mcserver] warning: failed to parse " << path << " as JSON (" << e.what()
+                      << "); skipping entry " << entryId << " in registry " << registry.id << "\n";
+        }
+    }
+    return registry;
 }
 
 } // namespace
 
-std::vector<Registry> buildMinimalRegistries() {
+std::vector<Registry> loadRegistriesFromDirectory(std::filesystem::path const& root) {
     std::vector<Registry> registries;
+    if (!std::filesystem::exists(root)) {
+        std::cerr << "[mcserver] warning: registry data directory does not exist: " << root << "\n";
+        return registries;
+    }
 
-    Registry dimensionType;
-    dimensionType.id = "minecraft:dimension_type";
-    dimensionType.entries.push_back({"minecraft:overworld", buildOverworldDimensionType()});
-    registries.push_back(std::move(dimensionType));
+    for (auto const& entry : std::filesystem::directory_iterator(root)) {
+        if (!entry.is_directory()) { continue; }
+        std::string dirName = entry.path().filename().string();
 
-    Registry biome;
-    biome.id = "minecraft:worldgen/biome";
-    biome.entries.push_back({"minecraft:plains", buildPlainsBiome()});
-    registries.push_back(std::move(biome));
+        if (dirName == "worldgen") {
+            auto biomeDir = entry.path() / "biome";
+            if (std::filesystem::exists(biomeDir)) {
+                registries.push_back(loadRegistryDir("minecraft:worldgen/biome", biomeDir));
+            }
+            continue;
+        }
 
+        registries.push_back(loadRegistryDir("minecraft:" + dirName, entry.path()));
+    }
+
+    // New 26.3 protocol registries live directly under data/minecraft rather
+    // than under the synchronized-registry directory used above.
+    auto vanillaDataRoot = root.parent_path().parent_path() / "share/data/minecraft";
+    constexpr std::array supplementalRegistries{"block_transformer", "decorated_pot_pattern", "enchantment_provider"};
+    for (auto registryName : supplementalRegistries) {
+        auto directory = vanillaDataRoot / registryName;
+        if (std::filesystem::exists(directory)) {
+            registries.push_back(loadRegistryDir("minecraft:" + std::string(registryName), directory));
+        }
+    }
+
+    // Deterministic registry order too, purely for reproducible logs/diffing.
+    std::sort(registries.begin(), registries.end(), [](Registry const& a, Registry const& b) { return a.id < b.id; });
     return registries;
 }
 
+std::vector<Registry> buildMinimalRegistries() { return loadRegistriesFromDirectory(MCSERVER_REGISTRY_DATA_DIR); }
+
 } // namespace mcserver::protocol
+

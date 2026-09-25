@@ -5,12 +5,14 @@
 namespace mcserver::protocol {
 
 std::string toJavaNetworkNbt(nbt::CompoundTag const& tag) {
-    std::string full = tag.toBinaryNbt(/*isLittleEndian=*/false);
-    if (full.size() < 3) { throw std::runtime_error("unexpected empty binary NBT payload"); }
+    return toJavaNetworkNbt(nbt::CompoundTagVariant(tag));
+}
+
+std::string toJavaNetworkNbt(nbt::CompoundTagVariant const& tag) {
     std::string result;
-    result.reserve(full.size() - 2);
-    result += full[0]; // type byte
-    result.append(full.begin() + 3, full.end()); // skip the 2-byte (empty) root name length
+    nbt::io::BytesDataOutput stream(result, false, false);
+    stream.writeByte(static_cast<uint8_t>(tag->getType()));
+    tag->write(stream);
     return result;
 }
 

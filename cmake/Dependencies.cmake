@@ -46,6 +46,17 @@ target_include_directories(glacie_nbt PRIVATE "${glacie_nbt_SOURCE_DIR}/src")
 target_compile_features(glacie_nbt PUBLIC cxx_std_23)
 target_link_libraries(glacie_nbt PUBLIC binarystream ZLIB::ZLIB)
 
+# --- nlohmann/json (used for our own JSON->NBT conversion; GlacieTeam/NBT's
+# built-in fromJson() has an integer-width bug — see repo memory) ------------
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(nlohmann_json)
+
 # --- Catch2 (test framework) -------------------------------------------------
 FetchContent_Declare(
     Catch2

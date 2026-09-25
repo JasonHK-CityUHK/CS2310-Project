@@ -1,6 +1,7 @@
 #include "mcserver/server/ClientSession.hpp"
 #include "mcserver/protocol/Nbt.hpp"
 #include "mcserver/protocol/Registries.hpp"
+#include "mcserver/protocol/Tags.hpp"
 #include "mcserver/util/Md5.hpp"
 
 #include <iostream>
@@ -34,6 +35,7 @@ constexpr int32_t kHandshakeIntentTransfer = 3;
 // Configuration state packet IDs (clientbound and serverbound have separate ID spaces).
 constexpr int32_t kConfigClientboundFinishConfiguration = 0x03;
 constexpr int32_t kConfigClientboundRegistryData = 0x07;
+constexpr int32_t kConfigClientboundUpdateTags = 0x0E;
 constexpr int32_t kConfigClientboundKnownPacks = 0x0F;
 
 constexpr int32_t kConfigServerboundKnownPacks = 0x07;
@@ -148,6 +150,22 @@ void ClientSession::sendRegistryData() {
     }
 }
 
+void ClientSession::sendUpdateTags() {
+    ByteWriter body;
+    auto taggedRegistries = protocol::buildMinimalTags();
+    body.writeVarInt(static_cast<int32_t>(taggedRegistries.size()));
+    for (auto const& registry : taggedRegistries) {
+        body.writeString(registry.registryId);
+        body.writeVarInt(static_cast<int32_t>(registry.tags.size()));
+        for (auto const& tag : registry.tags) {
+            body.writeString(tag.name);
+            body.writeVarInt(static_cast<int32_t>(tag.entries.size()));
+            for (int32_t entryId : tag.entries) { body.writeVarInt(entryId); }
+        }
+    }
+    connection_->send(kConfigClientboundUpdateTags, body);
+}
+
 void ClientSession::sendFinishConfiguration() {
     ByteWriter body;
     connection_->send(kConfigClientboundFinishConfiguration, body);
@@ -157,6 +175,7 @@ void ClientSession::handleConfiguration(int32_t packetId, ByteReader& reader) {
     if (packetId == kConfigServerboundKnownPacks) {
         // We don't care which packs the client claims to know; we always send full data.
         sendRegistryData();
+        sendUpdateTags();
         sendFinishConfiguration();
     } else if (packetId == kConfigServerboundFinishConfigurationAck) {
         connection_->setState(ProtocolState::Play);

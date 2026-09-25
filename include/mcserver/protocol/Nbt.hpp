@@ -14,6 +14,7 @@ namespace mcserver::protocol {
 // writes an empty name string, the latter targets Bedrock's varint-based format),
 // so we splice the 2-byte empty-name length out of toBinaryNbt(false) ourselves.
 [[nodiscard]] std::string toJavaNetworkNbt(nbt::CompoundTag const& tag);
+[[nodiscard]] std::string toJavaNetworkNbt(nbt::CompoundTagVariant const& tag);
 [[nodiscard]] nbt::CompoundTag fromJavaNetworkNbt(std::string_view data);
 
 } // namespace mcserver::protocol
