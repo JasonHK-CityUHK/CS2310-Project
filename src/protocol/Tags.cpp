@@ -1,13 +1,10 @@
 #include "mcserver/protocol/Tags.hpp"
+#include "mcserver/protocol/DataPaths.hpp"
 
 #include <algorithm>
 #include <filesystem>
 #include <map>
 #include <set>
-
-#ifndef MCSERVER_TAG_DATA_DIR
-#error "MCSERVER_TAG_DATA_DIR must be defined by the build (see src/CMakeLists.txt)"
-#endif
 
 namespace mcserver::protocol {
 
@@ -16,7 +13,7 @@ std::vector<TaggedRegistry> buildMinimalTags() {
     // empty until the server has real numeric IDs for the corresponding
     // registries; declaring the complete tag set is enough for configuration.
     std::map<std::string, std::vector<TagDefinition>> tagsByRegistry;
-    std::filesystem::path root = MCSERVER_TAG_DATA_DIR;
+    std::filesystem::path root = tagDataPath();
     if (!std::filesystem::exists(root)) { return {}; }
 
     // Update Tags may refer to built-in registries without a Registry Data
@@ -30,7 +27,7 @@ std::vector<TaggedRegistry> buildMinimalTags() {
         "minecraft:slot_display", "minecraft:sound_event", "minecraft:stat_type", "minecraft:villager_type",
         "minecraft:block_transformer", "minecraft:decorated_pot_pattern", "minecraft:enchantment_provider",
     };
-    std::filesystem::path registryRoot = MCSERVER_REGISTRY_DATA_DIR;
+    std::filesystem::path registryRoot = registryDataPath();
     if (std::filesystem::exists(registryRoot)) {
         for (auto const& entry : std::filesystem::directory_iterator(registryRoot)) {
             if (!entry.is_directory()) { continue; }

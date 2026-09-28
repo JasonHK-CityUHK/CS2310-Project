@@ -1,4 +1,5 @@
 #include "mcserver/protocol/Registries.hpp"
+#include "mcserver/protocol/DataPaths.hpp"
 #include "mcserver/protocol/JsonToNbt.hpp"
 #include "mcserver/util/Logger.hpp"
 
@@ -8,13 +9,6 @@
 #include <fstream>
 #include <sstream>
 #include <array>
-
-#ifndef MCSERVER_REGISTRY_DATA_DIR
-#error "MCSERVER_REGISTRY_DATA_DIR must be defined by the build (see src/CMakeLists.txt)"
-#endif
-#ifndef MCSERVER_VANILLA_DATA_DIR
-#error "MCSERVER_VANILLA_DATA_DIR must be defined by the build (see src/CMakeLists.txt)"
-#endif
 
 namespace mcserver::protocol {
 
@@ -80,7 +74,7 @@ std::vector<Registry> loadRegistriesFromDirectory(std::filesystem::path const& r
 
     // New 26.3 protocol registries live directly under data/minecraft rather
     // than under the synchronized-registry directory used above.
-    auto vanillaDataRoot = std::filesystem::path(MCSERVER_VANILLA_DATA_DIR);
+    auto vanillaDataRoot = vanillaDataPath();
     constexpr std::array supplementalRegistries{"block_transformer", "decorated_pot_pattern", "enchantment_provider"};
     for (auto registryName : supplementalRegistries) {
         auto directory = vanillaDataRoot / registryName;
@@ -94,7 +88,7 @@ std::vector<Registry> loadRegistriesFromDirectory(std::filesystem::path const& r
     return registries;
 }
 
-std::vector<Registry> buildMinimalRegistries() { return loadRegistriesFromDirectory(MCSERVER_REGISTRY_DATA_DIR); }
+std::vector<Registry> buildMinimalRegistries() { return loadRegistriesFromDirectory(registryDataPath()); }
 
 } // namespace mcserver::protocol
 

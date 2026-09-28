@@ -48,6 +48,11 @@ cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
 
+The GitHub Actions snapshot workflow builds and tests on pushes and pull requests.
+It uploads a Linux snapshot archive containing the executable, generated
+Minecraft runtime data, and a `run-snapshot.sh` launcher. The artifact is retained
+for 14 days.
+
 ## Run
 
 The server listens on port `25565` by default. A different port can be supplied
