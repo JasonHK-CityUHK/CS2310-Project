@@ -3,6 +3,7 @@ add_library(mcserver_core
     net/Packet.cpp
     net/Connection.cpp
     util/Md5.cpp
+    util/Logger.cpp
     protocol/Nbt.cpp
     protocol/JsonToNbt.cpp
     protocol/Registries.cpp

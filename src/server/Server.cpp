@@ -1,8 +1,9 @@
 #include "mcserver/server/Server.hpp"
 #include "mcserver/net/Connection.hpp"
 #include "mcserver/server/ClientSession.hpp"
+#include "mcserver/util/Logger.hpp"
 
-#include <iostream>
+#include <string>
 
 namespace mcserver::server {
 
@@ -20,7 +21,7 @@ void Server::doAccept() {
             auto session = std::make_shared<ClientSession>(connection);
             session->start();
         } else {
-            std::cerr << "[mcserver] accept error: " << ec.message() << "\n";
+            util::log(util::LogLevel::Warning, "accept failed: " + ec.message());
         }
         doAccept();
     });

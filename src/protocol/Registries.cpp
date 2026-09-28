@@ -1,11 +1,11 @@
 #include "mcserver/protocol/Registries.hpp"
 #include "mcserver/protocol/JsonToNbt.hpp"
+#include "mcserver/util/Logger.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 #include <array>
 
@@ -46,8 +46,9 @@ Registry loadRegistryDir(std::string registryId, std::filesystem::path const& di
             nlohmann::json parsed = nlohmann::json::parse(json);
             registry.entries.push_back({std::move(entryId), jsonValueToNbt(parsed)});
         } catch (std::exception const& e) {
-            std::cerr << "[mcserver] warning: failed to parse " << path << " as JSON (" << e.what()
-                      << "); skipping entry " << entryId << " in registry " << registry.id << "\n";
+            util::log(util::LogLevel::Warning,
+                      "failed to parse " + path.string() + " as JSON (" + e.what() + "); skipping entry " +
+                          entryId + " in registry " + registry.id);
         }
     }
     return registry;
@@ -58,7 +59,7 @@ Registry loadRegistryDir(std::string registryId, std::filesystem::path const& di
 std::vector<Registry> loadRegistriesFromDirectory(std::filesystem::path const& root) {
     std::vector<Registry> registries;
     if (!std::filesystem::exists(root)) {
-        std::cerr << "[mcserver] warning: registry data directory does not exist: " << root << "\n";
+        util::log(util::LogLevel::Warning, "registry data directory does not exist: " + root.string());
         return registries;
     }
 

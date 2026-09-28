@@ -1,6 +1,7 @@
 add_executable(mcserver_tests
     net_ByteBuffer_test.cpp
     util_Md5_test.cpp
+    util_Logger_test.cpp
     protocol_Nbt_test.cpp
 )
 

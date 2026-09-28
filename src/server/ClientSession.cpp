@@ -3,6 +3,7 @@
 #include "mcserver/protocol/Registries.hpp"
 #include "mcserver/protocol/Tags.hpp"
 #include "mcserver/util/Md5.hpp"
+#include "mcserver/util/Logger.hpp"
 
 #include <iostream>
 #include <bit>
@@ -172,6 +173,12 @@ void ClientSession::handleLogin(int32_t packetId, ByteReader& reader) {
         playerName_ = reader.readString();
         [[maybe_unused]] auto clientSuppliedUuid = reader.readUuid();
 
+        asio::error_code endpointError;
+        auto remote = connection_->socket().remote_endpoint(endpointError);
+        if (!endpointError) {
+            util::log(util::LogLevel::Info, "client connected from " + remote.address().to_string());
+        }
+
         auto uuid = util::offlinePlayerUuid(playerName_);
 
         ByteWriter body;
@@ -251,6 +258,7 @@ void ClientSession::handleConfiguration(int32_t packetId, ByteReader& reader) {
 }
 
 void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
+    util::log(util::LogLevel::Debug, "received Play packet id " + std::to_string(packetId));
     switch (packetId) {
     case kPlayServerboundConfirmTeleportation:
         (void)reader.readVarInt();

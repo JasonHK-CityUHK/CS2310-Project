@@ -58,6 +58,14 @@ as the first argument:
 ./build/src/mcserver 25566
 ```
 
+Logging defaults to `info`. Set `MCSERVER_LOG_LEVEL` to `error`, `warning`,
+`info`, or `debug` to change the minimum severity. Debug mode includes incoming
+Play packet IDs:
+
+```sh
+MCSERVER_LOG_LEVEL=debug ./build/src/mcserver
+```
+
 Connect with a Minecraft Java Edition 26.3 client using offline/local server
 mode.
 
