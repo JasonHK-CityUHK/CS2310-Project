@@ -24,6 +24,69 @@ cmake -S . -B build
 cmake --build build --target mcserver -j"$(nproc)"
 ```
 
+### Windows
+
+Follow these steps in order:
+
+1. Install Visual Studio 2022 with the **Desktop development with C++**
+   workload and install CMake.
+2. Choose a directory for vcpkg, then install it from the official Microsoft
+   repository:
+
+```powershell
+git clone https://github.com/microsoft/vcpkg.git (Join-Path $HOME "vcpkg")
+cd (Join-Path $HOME "vcpkg")
+.\bootstrap-vcpkg.bat
+```
+
+3. Open PowerShell in the project directory:
+
+```powershell
+cd "<your project directory>"
+```
+
+4. Build the server. Pass the same vcpkg directory to the script:
+
+```powershell
+.\scripts\build-windows.ps1 -VcpkgRoot (Join-Path $HOME "vcpkg")
+```
+
+If you chose a different directory, replace `(Join-Path $HOME "vcpkg")` with
+your own vcpkg directory. This step installs zlib, configures a Visual Studio
+x64 build, downloads the required Minecraft data, and compiles the executable.
+
+5. Start the server:
+
+```powershell
+.\scripts\run-windows.ps1
+```
+
+Keep this PowerShell window open. The server must remain running while
+Minecraft connects. You should see:
+
+```text
+[INFO] [mcserver] listening on port 25565
+```
+
+6. In Minecraft Java Edition **26.3**, open Multiplayer and connect to:
+
+```text
+localhost
+```
+
+The optional port is the first argument to the launcher:
+
+```powershell
+.\scripts\run-windows.ps1 25566
+```
+
+For that example, connect to `localhost:25566` in Minecraft.
+
+`build-windows.ps1` is an optional shortcut for the build commands.
+`run-windows.ps1` is an optional shortcut that starts an already-built server
+and sets `MCSERVER_DATA_DIR` to the generated data. Neither script requires a
+specific drive letter or project directory.
+
 The first build downloads and extracts the nested server jar from the official
 Minecraft server bundle. Registry and data-pack files are generated under:
 
