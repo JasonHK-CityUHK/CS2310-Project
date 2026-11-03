@@ -98,6 +98,67 @@ build/share/mcserver/
 
 The repository does not need a checked-in copy of these generated files.
 
+### Docker
+
+Docker Desktop is an alternative to installing the C++ toolchain locally.
+The Docker commands below work in Command Prompt or PowerShell. You only need
+Docker Desktop with its Linux container engine enabled; you do not need to
+install CMake, vcpkg, a C++ compiler, Git, or zlib on Windows. From the
+project directory, run this the first time:
+
+```bat
+docker compose build
+docker compose up
+```
+
+`docker compose build` installs the compiler, CMake, Git, and zlib inside the
+image, downloads the C++ dependencies and Minecraft 26.3 data, and builds the
+Linux server. `docker compose up` then starts the server. Compose maps the
+host's port `25565` to the container's port `25565`, so connect Minecraft Java
+Edition **26.3** to:
+
+```text
+localhost
+```
+
+After the image has been built successfully, start it normally with:
+
+```bat
+docker compose up
+```
+
+You only need to rebuild after changing source files, `Dockerfile`,
+`docker-compose.yml`, or dependencies:
+
+```bat
+docker compose build
+docker compose up
+```
+
+To build and start in one command, you can use `docker compose up --build`.
+To run the server in the background:
+
+```bat
+docker compose up -d
+docker compose logs -f
+```
+
+Stop and remove the container with:
+
+```bat
+docker compose down
+```
+
+To use a different host port, set `MCSERVER_HOST_PORT` in the command:
+
+```bat
+set MCSERVER_HOST_PORT=25566
+docker compose up
+```
+
+Then connect to `localhost:25566`. Docker runs the Linux server in a
+container; it does not produce a native Windows `.exe`.
+
 To use a separate build directory or compiler, pass the usual CMake options:
 
 ```sh
@@ -151,7 +212,6 @@ Implemented:
 
 Not yet implemented:
 
-- Docker
 - Collision and movement validation
 - Block breaking and placement
 - Entity movement broadcasting
