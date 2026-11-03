@@ -151,6 +151,7 @@ Implemented:
 
 Not yet implemented:
 
+- Docker
 - Collision and movement validation
 - Block breaking and placement
 - Entity movement broadcasting
