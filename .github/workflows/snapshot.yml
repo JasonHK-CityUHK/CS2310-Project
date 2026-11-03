@@ -1,0 +1,52 @@
+name: Snapshot
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  build-test-package:
+    name: Build, test, and package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build server and tests
+        run: cmake --build build --target mcserver mcserver_tests --parallel 2
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Stage runnable bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/mcserver-snapshot"
+          mkdir -p "${bundle}/bin" "${bundle}/share/mcserver"
+          cp build/src/mcserver "${bundle}/bin/mcserver"
+          cp -a build/share/mcserver/. "${bundle}/share/mcserver/"
+          cp scripts/run-snapshot.sh "${bundle}/run-snapshot.sh"
+          cp scripts/SNAPSHOT-README.md "${bundle}/README.md"
+          chmod +x "${bundle}/run-snapshot.sh" "${bundle}/bin/mcserver"
+          tar -C "${RUNNER_TEMP}" -czf "${RUNNER_TEMP}/mcserver-snapshot.tar.gz" mcserver-snapshot
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcserver-snapshot-${{ github.sha }}
+          path: ${{ runner.temp }}/mcserver-snapshot.tar.gz
+          if-no-files-found: error
+          retention-days: 14
