@@ -1,0 +1,10 @@
+services:
+  mcserver:
+    build:
+      context: .
+    ports:
+      - "${MCSERVER_HOST_PORT:-25565}:25565"
+    environment:
+      MCSERVER_LOG_LEVEL: "${MCSERVER_LOG_LEVEL:-info}"
+    stdin_open: true
+    tty: true
