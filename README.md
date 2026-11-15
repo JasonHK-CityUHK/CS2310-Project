@@ -203,19 +203,41 @@ mode.
 
 ## Current Scope
 
-Implemented:
+Implemented on `master`:
 
 - Handshake, Status, Login, Configuration, and Play state transitions
 - Offline UUID login without encryption or compression
 - Runtime registry and tag packets sourced from the official server data pack
-- A 3x3 empty flat-world chunk area with a stone spawn layer
+- A 3x3 flat-world chunk area with a stone spawn layer
 - Full-bright sky and block light arrays
-- Position, rotation, movement flags, teleport confirmation, player-loaded, and
-	keep-alive packet handling
-- Block breaking and placement
+- Player position, rotation, movement flags, teleport confirmation, player-loaded,
+  and keep-alive packet handling
+- Basic movement checks that reject non-finite coordinates and correct
+  per-packet jumps over 10 blocks; collision validation is still pending
+- Creative-mode player abilities and an initial inventory
+- Block breaking with shared in-memory updates broadcast to other players
+- Basic placement of vanilla block items from the hotbar or offhand into air
+- Windows build/run scripts and Docker configuration
 
-Not yet implemented:
+Completed on the feature branch, pending merge into `master`:
 
-- Collision and movement validation
+The [world persistence implementation](https://github.com/JasonHK-CityUHK/CS2310-Project/tree/feature/world-persistence-20261115)
+is complete and tested. It includes:
+
+- JSON save/load of both broken and placed block states across server restarts
+- Automatic saving every five seconds when the world changes, plus a final save
+  on normal shutdown
+- Temporary-file replacement, failed-save retries, and validation that preserves
+  existing saves when loading fails
+- Compatibility with version 1 saves from the earlier flat-world prototype
+- A Docker Compose volume for retaining world saves across container recreation
+
+The feature branch passed 25 unit tests and one TCP persistence test, for 26
+CTest checks in total. Its [GitHub build, tests, and packaging passed](https://github.com/JasonHK-CityUHK/CS2310-Project/actions/runs/43692094416).
+These persistence features become available on `master` after the branch is merged.
+
+Not yet implemented on `master`:
+
+- Collision detection and comprehensive movement validation
 - Entity movement broadcasting
-- Persistent worlds and save/load
+- Persistent worlds and save/load (completed on the feature branch above; merge pending)
