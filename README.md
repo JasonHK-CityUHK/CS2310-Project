@@ -210,6 +210,7 @@ Implemented:
 - Position, rotation, movement flags, teleport confirmation, player-loaded, and
 	keep-alive packet handling
 - Block breaking and placement
+
 Not yet implemented:
 
 - Collision and movement validation
