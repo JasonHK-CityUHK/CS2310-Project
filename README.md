@@ -2,18 +2,21 @@
 
 A minimal C++23 Minecraft Java Edition server for protocol experimentation. The
 server currently supports offline login, Configuration registry/tag exchange,
-flat-world chunk loading, full-bright lighting, basic Play movement packets, and
-keep-alive traffic.
+flat-world chunk loading, full-bright lighting, basic Play movement packets,
+block breaking and placement with in-memory world updates broadcast to players,
+and keep-alive traffic.
 
 ## Requirements
 
 - CMake 3.24 or newer
 - A C++23 compiler (GCC 13+ or Clang with C++23 support)
+- Java 25 or newer, to generate vanilla item and block-state mappings
 - Git, for CMake FetchContent dependencies
 - Internet access during the first configure/build
 
 The build downloads Asio, GlacieTeam/BinaryStream, GlacieTeam/NBT, nlohmann/json,
-Catch2, and the official Minecraft 26.3 server bundle.
+Catch2, and the official Minecraft 26.3 server bundle. Java 25 runs the official
+data generator to produce the vanilla item-to-block-state mapping.
 
 ## Build
 
@@ -28,9 +31,9 @@ cmake --build build --target mcserver -j"$(nproc)"
 
 Follow these steps in order:
 
-1. Install Visual Studio 2022 with the **Desktop development with C++**
-   workload and install CMake.
-2. Choose a directory for vcpkg, then install it from the official Microsoft
+1. Install Visual Studio 2022 with the **Desktop development with C++5 or newer. Ensure Java is available to CMake
+    (for example, by adding its `bin` directory to `PATH`).
+ 2. Choose a directory for vcpkg, then install it from the official Microsoft
    repository:
 
 ```powershell

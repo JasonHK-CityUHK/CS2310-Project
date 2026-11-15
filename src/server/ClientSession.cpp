@@ -1,7 +1,9 @@
 #include "mcserver/server/ClientSession.hpp"
+#include "mcserver/server/ChunkData.hpp"
 #include "mcserver/protocol/Nbt.hpp"
 #include "mcserver/protocol/Registries.hpp"
 #include "mcserver/protocol/Tags.hpp"
+#include "mcserver/server/World.hpp"
 #include "mcserver/util/Md5.hpp"
 #include "mcserver/util/Logger.hpp"
 
@@ -10,8 +12,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cmath>
+#include <limits>
 #include <span>
-#include <vector>
 
 namespace mcserver::server {
 
@@ -50,12 +52,16 @@ constexpr int32_t kConfigServerboundFinishConfigurationAck = 0x03;
 // Play clientbound packet IDs for protocol 777 / Minecraft 26.3.
 constexpr int32_t kPlayClientboundLogin = 0x32;
 constexpr int32_t kPlayClientboundGameEvent = 0x27;
+constexpr int32_t kPlayClientboundPlayerAbilities = 0x41;
+constexpr int32_t kPlayClientboundSetContainerSlot = 0x14;
 constexpr int32_t kPlayClientboundPlayerPosition = 0x49;
 constexpr int32_t kPlayClientboundSetCenterChunk = 0x60;
 constexpr int32_t kPlayClientboundChunkBatchFinished = 0x0B;
 constexpr int32_t kPlayClientboundChunkBatchStart = 0x0C;
 constexpr int32_t kPlayClientboundChunkData = 0x2E;
 constexpr int32_t kPlayClientboundKeepAlive = 0x2D;
+constexpr int32_t kPlayClientboundBlockChangedAck = 0x04;
+constexpr int32_t kPlayClientboundBlockUpdate = 0x08;
 
 constexpr int32_t kPlayServerboundConfirmTeleportation = 0x00;
 constexpr int32_t kPlayServerboundKeepAlive = 0x1C;
@@ -64,6 +70,20 @@ constexpr int32_t kPlayServerboundSetPlayerPositionAndRotation = 0x1F;
 constexpr int32_t kPlayServerboundSetPlayerRotation = 0x20;
 constexpr int32_t kPlayServerboundSetPlayerMovementFlags = 0x21;
 constexpr int32_t kPlayServerboundPlayerLoaded = 0x2C;
+constexpr int32_t kPlayServerboundPlayerAction = 0x29;
+constexpr int32_t kPlayServerboundSetHeldItem = 0x36;
+constexpr int32_t kPlayServerboundSetCreativeModeSlot = 0x39;
+constexpr int32_t kPlayServerboundUseItemOn = 0x42;
+
+constexpr int32_t kPlayerActionStartDigging = 0;
+constexpr int32_t kPlayerActionFinishDigging = 2;
+constexpr int32_t kAirBlockState = 0;
+constexpr uint8_t kPlayerAbilitiesInvulnerable = 0x01;
+constexpr uint8_t kPlayerAbilitiesFlying = 0x02;
+constexpr uint8_t kPlayerAbilitiesAllowFlying = 0x04;
+constexpr uint8_t kPlayerAbilitiesCreativeMode = 0x08;
+constexpr int16_t kFirstHotbarSlot = 36;
+constexpr int32_t kStoneItemId = 1;
 } // namespace
 
 void writeBitSet(net::ByteWriter& writer, uint64_t bits) {
@@ -79,43 +99,18 @@ void writeFullLightArray(net::ByteWriter& writer) {
     for (int index = 0; index < 2048; ++index) { writer.writeUByte(0xFF); }
 }
 
-void writePalettedContainer(net::ByteWriter& writer, bool ground) {
-    writer.writeUByte(ground ? 4 : 0);
-    if (ground) {
-        writer.writeVarInt(2); // air and stone local palette
-        writer.writeVarInt(0);
-        writer.writeVarInt(1); // global block state ID: stone
-        std::vector<uint64_t> data(256, 0);
-        for (int index = 0; index < 256; ++index) {
-            size_t bit = static_cast<size_t>(index) * 4;
-            data[bit / 64] |= uint64_t{1} << (bit % 64);
-        }
-        for (uint64_t word : data) { writer.writeLong(static_cast<int64_t>(word)); }
-    } else {
-        writer.writeVarInt(0); // single-valued air palette
-    }
-}
-
-std::vector<std::byte> flatChunkData() {
-    net::ByteWriter data;
-    for (int section = 0; section < 24; ++section) {
-        bool ground = section == 4;
-        data.writeShort(ground ? 256 : 0);
-        data.writeShort(0); // fluid count
-        writePalettedContainer(data, ground);
-        data.writeUByte(0); // single-valued biome palette
-        data.writeVarInt(41); // plains biome registry ID
-    }
-    return data.take();
-}
-
-ClientSession::ClientSession(std::shared_ptr<net::Connection> connection)
-    : connection_(std::move(connection)), keepAliveTimer_(connection_->socket().get_executor()) {}
+ClientSession::ClientSession(std::shared_ptr<net::Connection> connection, std::shared_ptr<World> world)
+    : connection_(std::move(connection)),
+      world_(std::move(world)),
+      keepAliveTimer_(connection_->socket().get_executor()) {}
 
 void ClientSession::start() {
     auto self = shared_from_this();
     connection_->setPacketHandler([self](int32_t id, ByteReader& reader) { self->handlePacket(id, reader); });
-    connection_->setDisconnectHandler([self]() { self->keepAliveTimer_.cancel(); });
+    connection_->setDisconnectHandler([self]() {
+        self->keepAliveTimer_.cancel();
+        self->world_->removePlayer(self->connection_.get());
+    });
     connection_->start();
 }
 
@@ -260,36 +255,123 @@ void ClientSession::handleConfiguration(int32_t packetId, ByteReader& reader) {
 void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
     util::log(util::LogLevel::Debug, "received Play packet id " + std::to_string(packetId));
     switch (packetId) {
-    case kPlayServerboundConfirmTeleportation:
-        (void)reader.readVarInt();
+    case kPlayServerboundConfirmTeleportation: {
+        int32_t teleportId = reader.readVarInt();
+        (void)reader.readDouble();
+        (void)reader.readDouble();
+        (void)reader.readDouble();
+        (void)reader.readFloat();
+        (void)reader.readFloat();
+        if (awaitingTeleportConfirmation_ && teleportId == pendingTeleportId_) {
+            awaitingTeleportConfirmation_ = false;
+        }
         break;
+    }
     case kPlayServerboundKeepAlive:
         (void)reader.readLong();
         break;
-    case kPlayServerboundSetPlayerPosition:
-        positionX_ = reader.readDouble();
-        positionY_ = reader.readDouble();
-        positionZ_ = reader.readDouble();
-        onGround_ = reader.readBool();
+    case kPlayServerboundSetPlayerPosition: {
+        double x = reader.readDouble();
+        double y = reader.readDouble();
+        double z = reader.readDouble();
+        bool onGround = reader.readBool();
+        handleMovement(x, y, z, onGround);
         break;
-    case kPlayServerboundSetPlayerPositionAndRotation:
-        positionX_ = reader.readDouble();
-        positionY_ = reader.readDouble();
-        positionZ_ = reader.readDouble();
-        yaw_ = reader.readFloat();
-        pitch_ = reader.readFloat();
-        onGround_ = reader.readBool();
+    }
+    case kPlayServerboundSetPlayerPositionAndRotation: {
+        double x = reader.readDouble();
+        double y = reader.readDouble();
+        double z = reader.readDouble();
+        float yaw = reader.readFloat();
+        float pitch = reader.readFloat();
+        bool onGround = reader.readBool();
+        if (!std::isfinite(yaw) || !std::isfinite(pitch)) {
+            connection_->close();
+            break;
+        }
+        handleMovement(x, y, z, onGround);
+        if (!awaitingTeleportConfirmation_) {
+            yaw_ = yaw;
+            pitch_ = pitch;
+        }
         break;
-    case kPlayServerboundSetPlayerRotation:
-        yaw_ = reader.readFloat();
-        pitch_ = reader.readFloat();
-        onGround_ = reader.readBool();
+    }
+    case kPlayServerboundSetPlayerRotation: {
+        float yaw = reader.readFloat();
+        float pitch = reader.readFloat();
+        bool onGround = reader.readBool();
+        if (!std::isfinite(yaw) || !std::isfinite(pitch)) {
+            connection_->close();
+            break;
+        }
+        if (!awaitingTeleportConfirmation_) {
+            yaw_ = yaw;
+            pitch_ = pitch;
+            onGround_ = onGround;
+        }
         break;
+    }
     case kPlayServerboundSetPlayerMovementFlags:
-        onGround_ = reader.readBool();
+        if (!awaitingTeleportConfirmation_) {
+            onGround_ = reader.readBool();
+        } else {
+            (void)reader.readBool();
+        }
         break;
+    case kPlayServerboundSetHeldItem: {
+        int16_t slot = reader.readShort();
+        if (slot < 0 || slot >= static_cast<int16_t>(hotbarItemIds_.size())) {
+            connection_->close();
+            break;
+        }
+        selectedHotbarSlot_ = slot;
+        break;
+    }
+    case kPlayServerboundSetCreativeModeSlot: {
+        int16_t slot = reader.readShort();
+        int32_t count = reader.readVarInt();
+        int32_t itemId = 0;
+        if (count > 0) { itemId = reader.readVarInt(); }
+
+        if (slot >= 36 && slot <= 44) {
+            hotbarItemIds_[static_cast<size_t>(slot - 36)] = itemId;
+        } else if (slot == 45) {
+            offhandItemId_ = itemId;
+        }
+        break;
+    }
     case kPlayServerboundPlayerLoaded:
         break;
+    case kPlayServerboundPlayerAction: {
+        int32_t action = reader.readVarInt();
+        auto position = reader.readPosition();
+        (void)reader.readByte(); // face
+        int32_t sequence = reader.readVarInt();
+        if (action == kPlayerActionStartDigging || action == kPlayerActionFinishDigging) {
+            handleBlockBreak(position.x, position.y, position.z);
+        }
+        ByteWriter acknowledgement;
+        acknowledgement.writeVarInt(sequence);
+        connection_->send(kPlayClientboundBlockChangedAck, acknowledgement);
+        break;
+    }
+    case kPlayServerboundUseItemOn: {
+        int32_t hand = reader.readVarInt();
+        auto target = reader.readPosition();
+        int32_t face = reader.readVarInt();
+        (void)reader.readFloat(); // cursor X
+        (void)reader.readFloat(); // cursor Y
+        (void)reader.readFloat(); // cursor Z
+        (void)reader.readBool(); // inside block
+        (void)reader.readBool(); // world border hit
+        int32_t sequence = reader.readVarInt();
+        handleBlockPlacement(hand, target, face);
+
+        ByteWriter acknowledgement;
+        acknowledgement.writeVarInt(sequence);
+        connection_->send(kPlayClientboundBlockChangedAck, acknowledgement);
+        break;
+    }
     default:
         // Other Play packets are intentionally ignored until their gameplay
         // state is implemented.
@@ -301,6 +383,93 @@ void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
         !std::isfinite(yaw_) || !std::isfinite(pitch_)) {
         connection_->close();
     }
+}
+
+void ClientSession::handleMovement(double x, double y, double z, bool onGround) {
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+        connection_->close();
+        return;
+    }
+    if (awaitingTeleportConfirmation_) { return; }
+
+    double deltaX = x - positionX_;
+    double deltaY = y - positionY_;
+    double deltaZ = z - positionZ_;
+    constexpr double kMaximumMovementDistanceSquared = 10.0 * 10.0;
+    if (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ > kMaximumMovementDistanceSquared) {
+        sendPlayerPosition();
+        return;
+    }
+
+    positionX_ = x;
+    positionY_ = y;
+    positionZ_ = z;
+    onGround_ = onGround;
+}
+
+void ClientSession::sendPlayerPosition() {
+    int32_t teleportId = nextTeleportId_;
+    nextTeleportId_ =
+        nextTeleportId_ == std::numeric_limits<int32_t>::max() ? 0 : nextTeleportId_ + 1;
+    pendingTeleportId_ = teleportId;
+    awaitingTeleportConfirmation_ = true;
+
+    ByteWriter position;
+    position.writeVarInt(teleportId);
+    position.writeDouble(positionX_);
+    position.writeDouble(positionY_);
+    position.writeDouble(positionZ_);
+    position.writeDouble(0.0);
+    position.writeDouble(0.0);
+    position.writeDouble(0.0);
+    position.writeFloat(yaw_);
+    position.writeFloat(pitch_);
+    position.writeInt(0); // Absolute position and rotation
+    connection_->send(kPlayClientboundPlayerPosition, position);
+}
+
+void ClientSession::sendBlockUpdate(net::BlockPos const& position, int32_t blockState) {
+    ByteWriter update;
+    update.writePosition(position);
+    update.writeVarInt(blockState);
+    connection_->send(kPlayClientboundBlockUpdate, update);
+    for (auto const& player : world_->playersExcept(connection_.get())) {
+        player->send(kPlayClientboundBlockUpdate, update);
+    }
+}
+
+void ClientSession::handleBlockBreak(int x, int y, int z) {
+    net::BlockPos position{.x = x, .y = y, .z = z};
+    world_->setBlockToAir(position);
+    sendBlockUpdate(position, kAirBlockState);
+}
+
+void ClientSession::handleBlockPlacement(int hand, net::BlockPos const& target, int face) {
+    static constexpr std::array<net::BlockPos, 6> faceOffsets{{
+        {0, -1, 0},
+        {0, 1, 0},
+        {0, 0, -1},
+        {0, 0, 1},
+        {-1, 0, 0},
+        {1, 0, 0},
+    }};
+    if (hand < 0 || hand > 1 || face < 0 || face >= static_cast<int>(faceOffsets.size())) {
+        return;
+    }
+
+    int32_t itemId = hand == 0 ? hotbarItemIds_[static_cast<size_t>(selectedHotbarSlot_)]
+                               : offhandItemId_;
+    auto blockState = world_->blockStateForItem(itemId);
+    if (!blockState) { return; }
+
+    auto const& offset = faceOffsets[static_cast<size_t>(face)];
+    net::BlockPos position{
+        .x = target.x + offset.x,
+        .y = target.y + offset.y,
+        .z = target.z + offset.z,
+    };
+    if (!world_->tryPlaceBlock(position, *blockState)) { return; }
+    sendBlockUpdate(position, *blockState);
 }
 
 void ClientSession::scheduleKeepAlive() {
@@ -318,7 +487,10 @@ void ClientSession::scheduleKeepAlive() {
 }
 
 void ClientSession::enterPlay() {
+    world_->addPlayer(connection_);
     sendPlayLogin();
+    sendPlayerAbilities();
+    sendInitialInventory();
     sendInitialSpawn();
     scheduleKeepAlive();
 }
@@ -338,7 +510,7 @@ void ClientSession::sendPlayLogin() {
         body.writeVarInt(0);              // Dimension type: sorted dimension_type ID
         body.writeString("minecraft:overworld");
         body.writeLong(0);                // Hashed seed
-        body.writeVarInt(1);              // Creative
+        body.writeVarInt(1);              // Game mode: Creative
         body.writeVarInt(0);              // Previous game mode: undefined
         body.writeBool(false);            // Is debug
         body.writeBool(true);             // Is flat
@@ -349,6 +521,29 @@ void ClientSession::sendPlayLogin() {
         body.writeBool(false);            // Does not enforce secure chat
         connection_->send(kPlayClientboundLogin, body);
     }
+
+void ClientSession::sendPlayerAbilities() {
+    ByteWriter body;
+    body.writeUByte(kPlayerAbilitiesInvulnerable | kPlayerAbilitiesFlying |
+                    kPlayerAbilitiesAllowFlying | kPlayerAbilitiesCreativeMode);
+    body.writeFloat(0.05f); // Flying speed
+    body.writeFloat(0.1f);  // Field-of-view modifier
+    connection_->send(kPlayClientboundPlayerAbilities, body);
+}
+
+void ClientSession::sendInitialInventory() {
+    hotbarItemIds_[0] = kStoneItemId;
+
+    ByteWriter slot;
+    slot.writeVarInt(0); // Player inventory window
+    slot.writeVarInt(0); // Initial state ID
+    slot.writeShort(kFirstHotbarSlot);
+    slot.writeVarInt(64); // Item count
+    slot.writeVarInt(kStoneItemId);
+    slot.writeVarInt(0); // Added components
+    slot.writeVarInt(0); // Removed components
+    connection_->send(kPlayClientboundSetContainerSlot, slot);
+}
 
 void ClientSession::sendInitialSpawn() {
         ByteWriter center;
@@ -361,18 +556,7 @@ void ClientSession::sendInitialSpawn() {
         event.writeFloat(0.0f);
         connection_->send(kPlayClientboundGameEvent, event);
 
-        ByteWriter position;
-        position.writeVarInt(0);           // Teleport ID
-        position.writeDouble(0.5);
-        position.writeDouble(65.0);
-        position.writeDouble(0.5);
-        position.writeDouble(0.0);
-        position.writeDouble(0.0);
-        position.writeDouble(0.0);
-        position.writeFloat(0.0f);
-        position.writeFloat(0.0f);
-        position.writeInt(0);              // Absolute position and rotation
-        connection_->send(kPlayClientboundPlayerPosition, position);
+        sendPlayerPosition();
         sendInitialChunks();
 }
 
@@ -388,7 +572,7 @@ void ClientSession::sendInitialSpawn() {
 
                 body.writeVarInt(0); // heightmaps are optional; the client initializes them
 
-                auto chunkData = flatChunkData();
+                auto chunkData = makeFlatChunkData(*world_, chunkX, chunkZ);
                 body.writeVarInt(static_cast<int32_t>(chunkData.size()));
                 body.writeBytes(chunkData);
                 body.writeVarInt(0); // Block entities

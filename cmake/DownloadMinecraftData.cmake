@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
+if(NOT DEFINED JAVA_EXECUTABLE)
+    message(FATAL_ERROR "JAVA_EXECUTABLE must point to a Java 25 or newer runtime")
+endif()
+
 set(server_jar "${CMAKE_BINARY_DIR}/minecraft-server-${MINECRAFT_VERSION}.jar")
 set(outer_dir "${CMAKE_BINARY_DIR}/minecraft-server-outer")
 set(inner_dir "${CMAKE_BINARY_DIR}/minecraft-server-inner")
@@ -64,5 +68,20 @@ foreach(registry_root IN LISTS registry_roots)
 endforeach()
 file(COPY "${inner_dir}/data/minecraft/worldgen/biome/"
     DESTINATION "${registry_data_dir}/worldgen/biome")
+
+set(reports_dir "${CMAKE_BINARY_DIR}/generated/reports")
+file(REMOVE_RECURSE "${reports_dir}")
+execute_process(
+    COMMAND "${JAVA_EXECUTABLE}" "-DbundlerMainClass=net.minecraft.data.Main"
+        -jar "${server_jar}" --reports
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    RESULT_VARIABLE report_generation_code
+)
+if(NOT report_generation_code EQUAL 0)
+    message(FATAL_ERROR "Failed to generate Minecraft registry reports")
+endif()
+if(NOT EXISTS "${reports_dir}/registries.json" OR NOT EXISTS "${reports_dir}/blocks.json")
+    message(FATAL_ERROR "Minecraft reports did not contain registries.json and blocks.json")
+endif()
 
 file(TOUCH "${MINECRAFT_DATA_STAMP}")

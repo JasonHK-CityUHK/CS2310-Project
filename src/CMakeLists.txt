@@ -8,8 +8,10 @@ add_library(mcserver_core
     protocol/JsonToNbt.cpp
     protocol/Registries.cpp
     protocol/Tags.cpp
+    server/ChunkData.cpp
     server/ClientSession.cpp
     server/Server.cpp
+    server/World.cpp
 )
 add_dependencies(mcserver_core mcserver_data)
 
@@ -31,6 +33,7 @@ target_compile_definitions(mcserver_core PRIVATE
     MCSERVER_REGISTRY_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/registries"
     MCSERVER_TAG_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/data/minecraft/tags"
     MCSERVER_VANILLA_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/data/minecraft"
+    MCSERVER_VANILLA_REPORTS_DIR="${CMAKE_BINARY_DIR}/generated/reports"
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -3,6 +3,8 @@ add_executable(mcserver_tests
     util_Md5_test.cpp
     util_Logger_test.cpp
     protocol_Nbt_test.cpp
+    server_ChunkData_test.cpp
+    server_World_test.cpp
 )
 
 target_link_libraries(mcserver_tests PRIVATE
