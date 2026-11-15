@@ -15,7 +15,8 @@ The server currently supports:
 - Player block breaking with in-memory block updates broadcast to other players
 - Basic placement of vanilla block items into air blocks
 
-Collision validation, entity broadcasting, and persistence are not implemented yet.
+JSON persistence for broken and placed blocks is implemented.
+Collision validation, entity broadcasting, and general world formats are not implemented yet.
 
 ## Repository Layout
 
@@ -172,3 +173,14 @@ Update `README.md` when build prerequisites, generated data behavior, supported 
 - Sending a packet with the right fields in the wrong order or with the wrong integer encoding.
 - Forgetting that a real client may send Play packets immediately after entering the world; unsupported packets should be intentionally ignored or handled without corrupting the next frame.
 - Leaving a server process running on the port needed by tests or manual client validation.
+
+## World Persistence
+
+- `World` owns block overrides and dirty state; `WorldStorage` owns versioned JSON I/O.
+- Default save: `world/flat-world.json`; override via `MCSERVER_WORLD_FILE`.
+- Autosave dirty state every five seconds and save on normal SIGINT/SIGTERM shutdown.
+- Load transactionally. Corrupt/incompatible saves must stop startup without being replaced.
+- Preserve the last good snapshot on write failure and keep dirty state for retry.
+- Read legacy version 1 broken-block saves; write protocol-777 version 2 block overrides.
+- Never commit runtime saves or macOS metadata. Tests must use temporary files.
+- After persistence changes, run `python3 tests/world_persistence_smoke.py build/src/mcserver`.

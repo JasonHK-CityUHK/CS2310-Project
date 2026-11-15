@@ -11,6 +11,7 @@ add_library(mcserver_core
     server/ChunkData.cpp
     server/ClientSession.cpp
     server/Server.cpp
+    server/WorldStorage.cpp
     server/World.cpp
 )
 add_dependencies(mcserver_core mcserver_data)

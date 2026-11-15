@@ -8,6 +8,7 @@
 #include <fstream>
 #include <functional>
 #include <stdexcept>
+#include <tuple>
 
 #include <nlohmann/json.hpp>
 
@@ -22,11 +23,46 @@ int32_t World::blockStateAt(net::BlockPos const& position) const {
     return position.y == 0 ? 1 : 0;
 }
 
-void World::setBlockToAir(net::BlockPos const& position) { blockOverrides_[position] = 0; }
+bool World::contains(net::BlockPos const& position) {
+    return position.x >= -33554432 && position.x <= 33554431 &&
+           position.z >= -33554432 && position.z <= 33554431 && position.y >= -64 && position.y < 320;
+}
+
+void World::setBlockToAir(net::BlockPos const& position) {
+    if (!contains(position) || blockStateAt(position) == 0) { return; }
+    if (position.y == 0) { blockOverrides_[position] = 0; }
+    else { blockOverrides_.erase(position); }
+    dirty_ = true;
+}
+
+std::vector<World::BlockChange> World::blockChanges() const {
+    std::vector<BlockChange> result;
+    result.reserve(blockOverrides_.size());
+    for (auto const& [position, state] : blockOverrides_) { result.push_back({position, state}); }
+    std::sort(result.begin(), result.end(), [](auto const& left, auto const& right) {
+        return std::tie(left.position.x, left.position.y, left.position.z) <
+               std::tie(right.position.x, right.position.y, right.position.z);
+    });
+    return result;
+}
+
+void World::restoreChanges(std::vector<BlockChange> const& changes) {
+    decltype(blockOverrides_) restored;
+    for (auto const& change : changes) {
+        if (!contains(change.position) || !validBlockState(change.state) ||
+            !restored.emplace(change.position, change.state).second) {
+            throw std::runtime_error("invalid or duplicate world block override");
+        }
+    }
+    blockOverrides_ = std::move(restored);
+    dirty_ = false;
+}
 
 bool World::tryPlaceBlock(net::BlockPos const& position, int32_t blockState) {
-    if (blockState == 0 || blockStateAt(position) != 0) { return false; }
-    blockOverrides_[position] = blockState;
+    if (!contains(position) || !validBlockState(blockState) || blockState == 0 || blockStateAt(position) != 0) { return false; }
+    if (position.y == 0 && blockState == 1) { blockOverrides_.erase(position); }
+    else { blockOverrides_[position] = blockState; }
+    dirty_ = true;
     return true;
 }
 
@@ -87,6 +123,7 @@ void World::loadBlockItemMappings() {
     for (auto const& [blockName, blockData] : blocks.items()) {
         (void)blockName;
         for (auto const& state : blockData.at("states")) {
+            validBlockStates_.insert(state.at("id").get<int32_t>());
             globalBlockStateBits_ =
                 std::max(globalBlockStateBits_,
                          static_cast<uint8_t>(std::bit_width(state.at("id").get<uint32_t>())));

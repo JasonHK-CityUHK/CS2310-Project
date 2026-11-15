@@ -213,9 +213,47 @@ Implemented:
 - Position, rotation, movement flags, teleport confirmation, player-loaded, and
 	keep-alive packet handling
 - Block breaking and placement
+- JSON save/load of broken and placed blocks
 
 Not yet implemented:
 
 - Collision and movement validation
 - Entity movement broadcasting
-- Persistent worlds and save/load
+- General Minecraft/Anvil worlds and entity persistence
+
+## World Persistence
+
+Modified block states are saved to `world/flat-world.json`, relative to the
+working directory. Set `MCSERVER_WORLD_FILE` to choose another path. Each running
+server must use a separate save file. Vanilla registry/report data remains
+separate from the writable world save.
+
+Changed worlds autosave every five seconds and once more on Ctrl+C (SIGINT) or
+SIGTERM. A forced kill may lose changes since the last successful save. Snapshots
+are written to a neighboring `.tmp` file, closed, then renamed over the save.
+Write failures preserve the last complete save and are retried at the next tick;
+a failed final save exits with status 1. Missing saves start a new world. Corrupt,
+invalid, or incompatible saves stop startup without overwriting the file.
+
+Version 2 stores block overrides as `blocks` entries with integer `x`, `y`, `z`,
+and `state`, together with `protocol: 777` and `world: "flat-stone-v1"`. Both
+broken blocks (state 0) and placed blocks are restored. Legacy version 1
+`broken_blocks` saves from the earlier flat-world prototype are accepted and
+upgraded on the next successful save. States are validated against the generated
+vanilla block report. The format is not Minecraft Anvil. Saves are limited to
+100,000 overrides and 32 MiB; coordinate height is -64..319.
+
+```sh
+MCSERVER_WORLD_FILE=world/demo.json ./build/src/mcserver
+ctest --test-dir build --output-on-failure
+python3 tests/world_persistence_smoke.py build/src/mcserver
+```
+
+The TCP smoke test uses temporary ports and saves and checks mining, placing,
+restart recovery, timed saving, failed-write retries, and corrupt-save protection.
+It runs on POSIX and needs Python 3. Windows users should use Ctrl+C for normal
+shutdown; externally terminating a Windows process can bypass final saving.
+A real Minecraft client should also be used before classroom demonstration.
+
+Docker Compose mounts a named volume at `/opt/mcserver/world`. Normal
+`docker compose down` retains the save; `docker compose down -v` deletes it.

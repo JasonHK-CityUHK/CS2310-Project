@@ -8,3 +8,8 @@ services:
       MCSERVER_LOG_LEVEL: "${MCSERVER_LOG_LEVEL:-info}"
     stdin_open: true
     tty: true
+    volumes:
+      - mcserver-world:/opt/mcserver/world
+
+volumes:
+  mcserver-world:
