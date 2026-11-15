@@ -10,13 +10,14 @@ and keep-alive traffic.
 
 - CMake 3.24 or newer
 - A C++23 compiler (GCC 13+ or Clang with C++23 support)
-- Java 25 or newer, to generate vanilla item and block-state mappings
 - Git, for CMake FetchContent dependencies
 - Internet access during the first configure/build
 
 The build downloads Asio, GlacieTeam/BinaryStream, GlacieTeam/NBT, nlohmann/json,
-Catch2, and the official Minecraft 26.3 server bundle. Java 25 runs the official
-data generator to produce the vanilla item-to-block-state mapping.
+Catch2, and the official Minecraft 26.3 server bundle. The protocol registry
+and block-state ID reports must be present in `data/blocks.json` and
+`data/registries.json`; CMake copies these files into the runtime data directory.
+Neither Java nor Go is required.
 
 ## Build
 
@@ -31,9 +32,8 @@ cmake --build build --target mcserver -j"$(nproc)"
 
 Follow these steps in order:
 
-1. Install Visual Studio 2022 with the **Desktop development with C++5 or newer. Ensure Java is available to CMake
-    (for example, by adding its `bin` directory to `PATH`).
- 2. Choose a directory for vcpkg, then install it from the official Microsoft
+1. Install Visual Studio 2022 with the **Desktop development with C++** workload.
+2. Choose a directory for vcpkg, then install it from the official Microsoft
    repository:
 
 ```powershell
@@ -91,15 +91,19 @@ and sets `MCSERVER_DATA_DIR` to the generated data. Neither script requires a
 specific drive letter or project directory.
 
 The first build downloads and extracts the nested server jar from the official
-Minecraft server bundle. Registry and data-pack files are generated under:
+Minecraft server bundle for tags and supplemental registry data. It copies the
+provided block-state and registry reports from `data/`. Runtime files are
+prepared under:
 
 ```text
 build/share/mcserver/
 ├── data/minecraft/   # tags and supplemental data
+├── data/reports/     # protocol registry and block-state ID JSON reports
 └── registries/       # synchronized registry JSON files
 ```
 
-The repository does not need a checked-in copy of these generated files.
+Keep `data/blocks.json` and `data/registries.json` in the repository's root
+`data/` directory; they are source inputs, not build outputs.
 
 ### Docker
 

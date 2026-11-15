@@ -28,13 +28,12 @@ target_link_libraries(mcserver_core PUBLIC
 
 target_compile_features(mcserver_core PUBLIC cxx_std_23)
 
-# Points the registry and tag loaders at build-time data extracted from the official
-# Minecraft server bundle.
+# Points registry, tag, vanilla-data, and report loaders at build-time data.
 target_compile_definitions(mcserver_core PRIVATE
     MCSERVER_REGISTRY_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/registries"
     MCSERVER_TAG_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/data/minecraft/tags"
     MCSERVER_VANILLA_DATA_DIR="${CMAKE_BINARY_DIR}/share/mcserver/data/minecraft"
-    MCSERVER_VANILLA_REPORTS_DIR="${CMAKE_BINARY_DIR}/generated/reports"
+    MCSERVER_VANILLA_REPORTS_DIR="${CMAKE_BINARY_DIR}/share/mcserver/data/reports"
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

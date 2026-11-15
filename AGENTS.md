@@ -33,7 +33,6 @@ Collision validation, entity broadcasting, and general world formats are not imp
 
 - CMake 3.24 or newer
 - A C++23 compiler, preferably GCC 13+ or a current Clang
-- Java 25 or newer, for generating vanilla item and block-state mappings
 - Git, because dependencies are fetched with CMake FetchContent
 - Internet access for the first configure/build, to fetch C++ dependencies and the official Minecraft server bundle
 
@@ -78,17 +77,20 @@ The executable listens on port 25565 by default. Do not start a second server on
 
 ## Generated Minecraft Data
 
-Minecraft data is not source-controlled. The `mcserver_data` CMake target downloads the pinned official Minecraft 26.3 server bundle, verifies its SHA-1, extracts the nested jar at `META-INF/versions/*/server-*.jar`, and generates:
+The `mcserver_data` CMake target downloads the pinned official Minecraft 26.3
+server bundle, verifies its SHA-1, extracts the nested jar at
+`META-INF/versions/*/server-*.jar`, and stages:
 
 ```text
 build/share/mcserver/
 ├── data/minecraft/   # extracted vanilla data pack, including tags
+├── data/reports/     # protocol registry and block-state ID JSON reports
 └── registries/       # curated synchronized registry JSON files
 ```
 
-The official Java 25 data generator also creates `build/generated/reports/`,
-including block-state and registry IDs used for held-item block placement. Do
-not commit these generated reports.
+The source `data/blocks.json` and `data/registries.json` files provide the
+block-state and registry IDs used for held-item block placement; CMake copies
+them into `build/share/mcserver/data/reports/`. Do not commit build outputs.
 
 The loader receives these paths through compile definitions:
 
