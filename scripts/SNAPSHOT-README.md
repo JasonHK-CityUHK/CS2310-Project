@@ -18,3 +18,8 @@ MCSERVER_LOG_LEVEL=debug ./run-snapshot.sh 25566
 
 The default port is 25565. The bundle is built for Linux and requires a
 compatible C++ runtime and zlib shared library on the host.
+
+Modified blocks are saved to `world/flat-world.json` relative to your current
+working directory. Set `MCSERVER_WORLD_FILE` to choose another path. Keep that
+file across upgrades, and use Ctrl+C for a final save before shutdown. The server
+also autosaves changed worlds every five seconds.

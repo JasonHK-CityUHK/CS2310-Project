@@ -203,7 +203,7 @@ mode.
 
 ## Current Scope
 
-Implemented on `master`:
+Implemented:
 
 - Handshake, Status, Login, Configuration, and Play state transitions
 - Offline UUID login without encryption or compression
@@ -218,26 +218,50 @@ Implemented on `master`:
 - Block breaking with shared in-memory updates broadcast to other players
 - Basic placement of vanilla block items from the hotbar or offhand into air
 - Windows build/run scripts and Docker configuration
-
-Completed on the feature branch, pending merge into `master`:
-
-The [world persistence implementation](https://github.com/JasonHK-CityUHK/CS2310-Project/tree/feature/world-persistence-20261115)
-is complete and tested. It includes:
-
-- JSON save/load of both broken and placed block states across server restarts
-- Automatic saving every five seconds when the world changes, plus a final save
-  on normal shutdown
-- Temporary-file replacement, failed-save retries, and validation that preserves
-  existing saves when loading fails
-- Compatibility with version 1 saves from the earlier flat-world prototype
+- JSON save/load of broken and placed block states across server restarts
+- Automatic saves every five seconds and a final save on normal shutdown
+- Failed-save retries, corrupt-save protection, and legacy version 1 save compatibility
 - A Docker Compose volume for retaining world saves across container recreation
 
-The feature branch passed 25 unit tests and one TCP persistence test, for 26
-CTest checks in total. Its [GitHub build, tests, and packaging passed](https://github.com/JasonHK-CityUHK/CS2310-Project/actions/runs/43692094416).
-These persistence features become available on `master` after the branch is merged.
-
-Not yet implemented on `master`:
+Not yet implemented:
 
 - Collision detection and comprehensive movement validation
 - Entity movement broadcasting
-- Persistent worlds and save/load (completed on the feature branch above; merge pending)
+- General Minecraft/Anvil world formats and entity persistence
+
+## World Persistence
+
+Modified block states are saved to `world/flat-world.json`, relative to the
+working directory. Set `MCSERVER_WORLD_FILE` to choose another path. Each running
+server must use a separate save file. Vanilla registry/report data remains
+separate from the writable world save.
+
+Changed worlds autosave every five seconds and once more on Ctrl+C (SIGINT) or
+SIGTERM. A forced kill may lose changes since the last successful save. Snapshots
+are written to a neighboring `.tmp` file, closed, then renamed over the save.
+Write failures preserve the last complete save and are retried at the next tick;
+a failed final save exits with status 1. Missing saves start a new world. Corrupt,
+invalid, or incompatible saves stop startup without overwriting the file.
+
+Version 2 stores block overrides as `blocks` entries with integer `x`, `y`, `z`,
+and `state`, together with `protocol: 777` and `world: "flat-stone-v1"`. Both
+broken blocks (state 0) and placed blocks are restored. Legacy version 1
+`broken_blocks` saves from the earlier flat-world prototype are accepted and
+upgraded on the next successful save. States are validated against the generated
+vanilla block report. The format is not Minecraft Anvil. Saves are limited to
+100,000 overrides and 32 MiB; coordinate height is -64..319.
+
+```sh
+MCSERVER_WORLD_FILE=world/demo.json ./build/src/mcserver
+ctest --test-dir build --output-on-failure
+python3 tests/world_persistence_smoke.py build/src/mcserver
+```
+
+The TCP smoke test uses temporary ports and saves and checks mining, placing,
+restart recovery, timed saving, failed-write retries, and corrupt-save protection.
+It runs on POSIX and needs Python 3. Windows users should use Ctrl+C for normal
+shutdown; externally terminating a Windows process can bypass final saving.
+A real Minecraft client should also be used before classroom demonstration.
+
+Docker Compose mounts a named volume at `/opt/mcserver/world`. Normal
+`docker compose down` retains the save; `docker compose down -v` deletes it.

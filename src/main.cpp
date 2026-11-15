@@ -4,6 +4,8 @@
 #include <asio.hpp>
 
 #include <cstdint>
+#include <csignal>
+#include <filesystem>
 #include <cstdlib>
 #include <string>
 
@@ -23,12 +25,20 @@ int main(int argc, char** argv) {
 
     try {
         asio::io_context ioContext;
-        mcserver::server::Server server(ioContext, "0.0.0.0", port);
+        char const* configuredWorld = std::getenv("MCSERVER_WORLD_FILE");
+        std::filesystem::path worldFile = configuredWorld && *configuredWorld
+            ? configuredWorld : "world/flat-world.json";
+        mcserver::server::Server server(ioContext, "0.0.0.0", port, worldFile);
+        asio::signal_set shutdownSignals(ioContext, SIGINT, SIGTERM);
+        shutdownSignals.async_wait([&ioContext](asio::error_code error, int) {
+            if (!error) { ioContext.stop(); }
+        });
         server.start();
 
         mcserver::util::log(mcserver::util::LogLevel::Info,
                             "listening on port " + std::to_string(port) + " (offline mode, no compression)");
         ioContext.run();
+        return server.stop() ? 0 : 1;
     } catch (std::exception const& e) {
         mcserver::util::log(mcserver::util::LogLevel::Error, e.what());
         return 1;
