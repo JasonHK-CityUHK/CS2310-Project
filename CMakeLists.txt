@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 project(mcserver LANGUAGES CXX)
 
+find_package(Java 25 REQUIRED COMPONENTS Runtime)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -21,6 +23,7 @@ add_custom_command(
         -DMINECRAFT_SERVER_URL=${MINECRAFT_SERVER_URL}
         -DMINECRAFT_SERVER_SHA1=${MINECRAFT_SERVER_SHA1}
         -DMINECRAFT_DATA_STAMP=${MINECRAFT_DATA_STAMP}
+        -DJAVA_EXECUTABLE=${Java_JAVA_EXECUTABLE}
         -P "${CMAKE_SOURCE_DIR}/cmake/DownloadMinecraftData.cmake"
     COMMENT "Downloading and extracting Minecraft ${MINECRAFT_VERSION} registry data"
     DEPENDS "${CMAKE_SOURCE_DIR}/cmake/DownloadMinecraftData.cmake"

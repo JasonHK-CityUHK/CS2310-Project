@@ -1,6 +1,7 @@
 #include "mcserver/server/Server.hpp"
 #include "mcserver/net/Connection.hpp"
 #include "mcserver/server/ClientSession.hpp"
+#include "mcserver/server/World.hpp"
 #include "mcserver/util/Logger.hpp"
 
 #include <string>
@@ -9,7 +10,8 @@ namespace mcserver::server {
 
 Server::Server(asio::io_context& ioContext, std::string bindAddress, uint16_t port)
     : ioContext_(ioContext),
-      acceptor_(ioContext, asio::ip::tcp::endpoint(asio::ip::make_address(bindAddress), port)) {}
+      acceptor_(ioContext, asio::ip::tcp::endpoint(asio::ip::make_address(bindAddress), port)),
+      world_(std::make_shared<World>()) {}
 
 void Server::start() { doAccept(); }
 
@@ -18,7 +20,7 @@ void Server::doAccept() {
         if (!ec) {
             socket.set_option(asio::ip::tcp::no_delay(true));
             auto connection = std::make_shared<net::Connection>(std::move(socket));
-            auto session = std::make_shared<ClientSession>(connection);
+            auto session = std::make_shared<ClientSession>(connection, world_);
             session->start();
         } else {
             util::log(util::LogLevel::Warning, "accept failed: " + ec.message());

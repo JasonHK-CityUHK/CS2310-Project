@@ -12,8 +12,10 @@ The server currently supports:
 - A 3x3 flat-world chunk area with a stone spawn layer
 - Full-bright sky and block lighting
 - Basic player movement, rotation, teleport confirmation, player-loaded, and keep-alive packets
+- Player block breaking with in-memory block updates broadcast to other players
+- Basic placement of vanilla block items into air blocks
 
-Collision validation, block interaction, entity broadcasting, and persistence are not implemented yet.
+Collision validation, entity broadcasting, and persistence are not implemented yet.
 
 ## Repository Layout
 
@@ -30,6 +32,7 @@ Collision validation, block interaction, entity broadcasting, and persistence ar
 
 - CMake 3.24 or newer
 - A C++23 compiler, preferably GCC 13+ or a current Clang
+- Java 25 or newer, for generating vanilla item and block-state mappings
 - Git, because dependencies are fetched with CMake FetchContent
 - Internet access for the first configure/build, to fetch C++ dependencies and the official Minecraft server bundle
 
@@ -82,11 +85,16 @@ build/share/mcserver/
 └── registries/       # curated synchronized registry JSON files
 ```
 
+The official Java 25 data generator also creates `build/generated/reports/`,
+including block-state and registry IDs used for held-item block placement. Do
+not commit these generated reports.
+
 The loader receives these paths through compile definitions:
 
 - `MCSERVER_REGISTRY_DATA_DIR`
 - `MCSERVER_TAG_DATA_DIR`
 - `MCSERVER_VANILLA_DATA_DIR`
+- `MCSERVER_VANILLA_REPORTS_DIR`
 
 Do not restore generated JSON into the repository or hard-code source-tree data paths. If the Minecraft version changes, update the version, URL, and SHA-1 together in the top-level `CMakeLists.txt`, then verify registry ordering and client compatibility.
 
@@ -98,7 +106,7 @@ Do not restore generated JSON into the repository or hard-code source-tree data 
 - Use `ByteReader` and `ByteWriter` from `include/mcserver/net/ByteBuffer.hpp` for protocol primitives.
 - `Connection` owns packet framing and asynchronous writes. Session code should handle packet meaning, not TCP framing.
 - The connection is currently uncompressed and offline-mode. Do not add compression or encryption assumptions without updating the state machine and handshake flow.
-- Play movement data is currently recorded as session state. Do not describe it as collision-validated or authoritative until those systems exist.
+- Play movement rejects non-finite coordinates and per-packet jumps over 10 blocks, but it is not collision-validated or otherwise authoritative.
 
 Important current Play packet IDs for protocol 777 are defined near the top of `src/server/ClientSession.cpp`. Keep those constants centralized and documented when adding more packets.
 
