@@ -68,9 +68,12 @@ class Client:
             pass
         self.send(3)
         self.chunks = {}
-        self.current_position = (.5, 65., .5)
+        self.current_position = (.5, 1., .5)
+        self.abilities_flags = None
         while True:
             packet_id, body = self.receive()
+            if packet_id == 0x41:
+                self.abilities_flags = body[0]
             if packet_id == 0x49:
                 spawn = Buffer(body)
                 self.teleport_id = spawn.integer()
@@ -83,6 +86,9 @@ class Client:
             if packet_id == 0x0B:
                 break
         assert len(self.chunks) == 9
+        assert self.current_position == (.5, 1., .5), 'player should spawn on the stone layer'
+        assert self.abilities_flags is not None and not self.abilities_flags & 0x02, \
+            'player should not spawn with flight enabled'
         self.send(0, varint(self.teleport_id) + struct.pack('>dddff', *self.current_position, 0., 0.))
 
     def read(self, size):

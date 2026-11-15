@@ -79,7 +79,6 @@ constexpr int32_t kPlayerActionStartDigging = 0;
 constexpr int32_t kPlayerActionFinishDigging = 2;
 constexpr int32_t kAirBlockState = 0;
 constexpr uint8_t kPlayerAbilitiesInvulnerable = 0x01;
-constexpr uint8_t kPlayerAbilitiesFlying = 0x02;
 constexpr uint8_t kPlayerAbilitiesAllowFlying = 0x04;
 constexpr uint8_t kPlayerAbilitiesCreativeMode = 0x08;
 constexpr int16_t kFirstHotbarSlot = 36;
@@ -524,8 +523,8 @@ void ClientSession::sendPlayLogin() {
 
 void ClientSession::sendPlayerAbilities() {
     ByteWriter body;
-    body.writeUByte(kPlayerAbilitiesInvulnerable | kPlayerAbilitiesFlying |
-                    kPlayerAbilitiesAllowFlying | kPlayerAbilitiesCreativeMode);
+    body.writeUByte(kPlayerAbilitiesInvulnerable | kPlayerAbilitiesAllowFlying |
+                    kPlayerAbilitiesCreativeMode);
     body.writeFloat(0.05f); // Flying speed
     body.writeFloat(0.1f);  // Field-of-view modifier
     connection_->send(kPlayClientboundPlayerAbilities, body);

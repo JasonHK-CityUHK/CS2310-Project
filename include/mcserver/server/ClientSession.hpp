@@ -50,11 +50,11 @@ private:
     asio::steady_timer keepAliveTimer_;
     std::string playerName_;
     double positionX_ = 0.5;
-    double positionY_ = 65.0;
+    double positionY_ = 1.0;
     double positionZ_ = 0.5;
     float yaw_ = 0.0f;
     float pitch_ = 0.0f;
-    bool onGround_ = false;
+    bool onGround_ = true;
     std::array<int32_t, 9> hotbarItemIds_{};
     int32_t offhandItemId_ = 0;
     int16_t selectedHotbarSlot_ = 0;
