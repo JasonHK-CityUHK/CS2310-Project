@@ -209,10 +209,9 @@ Implemented:
 - Full-bright sky and block light arrays
 - Position, rotation, movement flags, teleport confirmation, player-loaded, and
 	keep-alive packet handling
-
+- Block breaking and placement
 Not yet implemented:
 
 - Collision and movement validation
-- Block breaking and placement
 - Entity movement broadcasting
 - Persistent worlds and save/load
