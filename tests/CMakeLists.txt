@@ -1,4 +1,5 @@
 add_executable(mcserver_tests
+    server_AnvilWorld_test.cpp
     net_ByteBuffer_test.cpp
     util_Md5_test.cpp
     util_Logger_test.cpp

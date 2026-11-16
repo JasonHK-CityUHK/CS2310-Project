@@ -38,10 +38,11 @@ bool WorldStorage::load(World& world) const {
     auto const& version = document.at("version");
     bool legacy = version.is_number_integer() && version == 1;
     if (!version.is_number_integer() || (!legacy && version != 2) ||
-        document.value("world", std::string{}) != "flat-stone-v1" ||
+        document.value("world", std::string{}) != world.identity() ||
         (!legacy && coordinate(document.at("protocol")) != 777)) {
         throw std::runtime_error("unsupported world save format: " + file_.string());
     }
+    if (legacy && world.imported()) { throw std::runtime_error("legacy flat-world saves cannot be applied to an imported map"); }
     auto const& blocks = document.at(legacy ? "broken_blocks" : "blocks");
     if (!blocks.is_array() || blocks.size() > (legacy ? 2304u : 100000u)) {
         throw std::runtime_error("invalid block list in world save: " + file_.string());
@@ -67,7 +68,7 @@ void WorldStorage::save(World const& world) const {
         auto const& position = change.position;
         blocks.push_back({{"x", position.x}, {"y", position.y}, {"z", position.z}, {"state", change.state}});
     }
-    Json document{{"version", 2}, {"protocol", 777}, {"world", "flat-stone-v1"}, {"blocks", std::move(blocks)}};
+    Json document{{"version", 2}, {"protocol", 777}, {"world", world.identity()}, {"blocks", std::move(blocks)}};
     auto parent = file_.parent_path();
     if (!parent.empty()) { std::filesystem::create_directories(parent); }
     auto temporary = file_;

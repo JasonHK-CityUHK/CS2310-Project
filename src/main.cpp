@@ -26,8 +26,9 @@ int main(int argc, char** argv) {
     try {
         asio::io_context ioContext;
         char const* configuredWorld = std::getenv("MCSERVER_WORLD_FILE");
+        char const* sourceWorld = std::getenv("MCSERVER_WORLD_DIR");
         std::filesystem::path worldFile = configuredWorld && *configuredWorld
-            ? configuredWorld : "world/flat-world.json";
+            ? configuredWorld : (sourceWorld && *sourceWorld ? "world/imported.json" : "world/flat-world.json");
         mcserver::server::Server server(ioContext, "0.0.0.0", port, worldFile);
         asio::signal_set shutdownSignals(ioContext, SIGINT, SIGTERM);
         shutdownSignals.async_wait([&ioContext](asio::error_code error, int) {

@@ -486,6 +486,12 @@ void ClientSession::scheduleKeepAlive() {
 }
 
 void ClientSession::enterPlay() {
+    auto spawn = world_->spawn();
+    positionX_ = spawn.x;
+    positionY_ = spawn.y;
+    positionZ_ = spawn.z;
+    yaw_ = spawn.yaw;
+    pitch_ = spawn.pitch;
     world_->addPlayer(connection_);
     sendPlayLogin();
     sendPlayerAbilities();
@@ -546,8 +552,8 @@ void ClientSession::sendInitialInventory() {
 
 void ClientSession::sendInitialSpawn() {
         ByteWriter center;
-        center.writeVarInt(0);
-        center.writeVarInt(0);
+        center.writeVarInt(AnvilWorld::floorDiv(static_cast<int32_t>(std::floor(positionX_)), 16));
+        center.writeVarInt(AnvilWorld::floorDiv(static_cast<int32_t>(std::floor(positionZ_)), 16));
         connection_->send(kPlayClientboundSetCenterChunk, center);
 
         ByteWriter event;
@@ -563,8 +569,10 @@ void ClientSession::sendInitialSpawn() {
         ByteWriter start;
         connection_->send(kPlayClientboundChunkBatchStart, start);
 
-        for (int32_t chunkZ = -1; chunkZ <= 1; ++chunkZ) {
-            for (int32_t chunkX = -1; chunkX <= 1; ++chunkX) {
+        int32_t centerX = AnvilWorld::floorDiv(static_cast<int32_t>(std::floor(positionX_)), 16);
+        int32_t centerZ = AnvilWorld::floorDiv(static_cast<int32_t>(std::floor(positionZ_)), 16);
+        for (int32_t chunkZ = centerZ - 1; chunkZ <= centerZ + 1; ++chunkZ) {
+            for (int32_t chunkX = centerX - 1; chunkX <= centerX + 1; ++chunkX) {
                 ByteWriter body;
                 body.writeInt(chunkX);
                 body.writeInt(chunkZ);
