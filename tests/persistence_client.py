@@ -1,5 +1,5 @@
 """Exercise the real server with protocol-777 TCP clients (no game install required).
-Run: python3 tests/block_breaking_smoke.py build/src/mcserver
+Helper codec for the persistence and world-import smoke tests.
 """
 import contextlib
 import os
@@ -56,7 +56,7 @@ class Buffer:
 
 
 class Client:
-    def __init__(self, port, name):
+    def __init__(self, port, name, expected_spawn=(.5, 1., .5)):
         self.socket = socket.create_connection(('127.0.0.1', port), timeout=5)
         self.send(0, varint(777) + text('localhost') + struct.pack('>H', port) + varint(2))
         self.send(0, text(name) + bytes(16))
@@ -86,7 +86,8 @@ class Client:
             if packet_id == 0x0B:
                 break
         assert len(self.chunks) == 9
-        assert self.current_position == (.5, 1., .5), 'player should spawn on the stone layer'
+        if expected_spawn is not None:
+            assert self.current_position == expected_spawn, 'unexpected spawn position'
         assert self.abilities_flags is not None and not self.abilities_flags & 0x02, \
             'player should not spawn with flight enabled'
         self.send(0, varint(self.teleport_id) + struct.pack('>dddff', *self.current_position, 0., 0.))

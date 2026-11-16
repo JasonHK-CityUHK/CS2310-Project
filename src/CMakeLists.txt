@@ -8,6 +8,7 @@ add_library(mcserver_core
     protocol/JsonToNbt.cpp
     protocol/Registries.cpp
     protocol/Tags.cpp
+    server/AnvilWorld.cpp
     server/ChunkData.cpp
     server/ClientSession.cpp
     server/Server.cpp

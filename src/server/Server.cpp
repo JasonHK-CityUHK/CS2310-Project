@@ -5,6 +5,7 @@
 
 #include <string>
 #include <chrono>
+#include <cstdlib>
 
 namespace mcserver::server {
 
@@ -14,6 +15,10 @@ Server::Server(asio::io_context& ioContext, std::string bindAddress, uint16_t po
       acceptor_(ioContext, asio::ip::tcp::endpoint(asio::ip::make_address(bindAddress), port)),
       autosaveTimer_(ioContext_), storage_(std::move(worldFile)) {
     try {
+        if (char const* directory = std::getenv("MCSERVER_WORLD_DIR"); directory && *directory) {
+            world_->loadAnvil(directory);
+            util::log(util::LogLevel::Info, "imported " + world_->worldName() + " (9 chunks, " + world_->identity() + ")");
+        }
         bool loaded = storage_.load(*world_);
         util::log(util::LogLevel::Info,
                   std::string(loaded ? "loaded world from " : "new world; save path ") + storage_.path().string());

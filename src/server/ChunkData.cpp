@@ -12,8 +12,10 @@
 namespace mcserver::server {
 namespace {
 
-void writePalettedContainer(net::ByteWriter& writer, std::array<int32_t, 4096> const& blockStates,
-                            size_t blockCount, uint8_t globalBitsPerEntry) {
+template<size_t Count>
+void writePalettedContainer(net::ByteWriter& writer, std::array<int32_t, Count> const& blockStates,
+                            size_t blockCount, uint8_t globalBitsPerEntry, uint8_t minBits = 4,
+                            uint8_t maxLocalBits = 8) {
     std::vector<int32_t> palette;
     std::unordered_map<int32_t, uint32_t> paletteIndices;
     if (blockCount != blockStates.size()) {
@@ -34,8 +36,8 @@ void writePalettedContainer(net::ByteWriter& writer, std::array<int32_t, 4096> c
     }
 
     uint8_t bitsPerEntry =
-        std::max<uint8_t>(4, static_cast<uint8_t>(std::bit_width(palette.size() - 1)));
-    bool useGlobalPalette = bitsPerEntry > 8;
+        std::max<uint8_t>(minBits, static_cast<uint8_t>(std::bit_width(palette.size() - 1)));
+    bool useGlobalPalette = bitsPerEntry > maxLocalBits;
     if (useGlobalPalette) {
         bitsPerEntry = globalBitsPerEntry;
         writer.writeUByte(bitsPerEntry);
@@ -63,6 +65,7 @@ std::vector<std::byte> makeFlatChunkData(World const& world, int32_t chunkX, int
     for (int section = 0; section < 24; ++section) {
         std::array<int32_t, 4096> blockStates{};
         size_t blockCount = 0;
+        int16_t fluidCount = 0;
         size_t index = 0;
         for (int localY = 0; localY < 16; ++localY) {
             int32_t worldY = -64 + section * 16 + localY;
@@ -71,15 +74,23 @@ std::vector<std::byte> makeFlatChunkData(World const& world, int32_t chunkX, int
                 for (int localX = 0; localX < 16; ++localX, ++index) {
                     int32_t worldX = chunkX * 16 + localX;
                     blockStates[index] = world.blockStateAt({worldX, worldY, worldZ});
-                    blockCount += blockStates[index] != 0 ? 1 : 0;
+                    blockCount += world.isAirState(blockStates[index]) ? 0 : 1;
+                    fluidCount += world.isFluidState(blockStates[index]) ? 1 : 0;
                 }
             }
         }
         data.writeShort(static_cast<int16_t>(blockCount));
-        data.writeShort(0); // fluid count
+        data.writeShort(fluidCount);
         writePalettedContainer(data, blockStates, blockCount, world.globalBlockStateBits());
-        data.writeUByte(0); // single-valued biome palette
-        data.writeVarInt(41); // plains biome registry ID
+        std::array<int32_t, 64> biomes{};
+        for (int y = 0; y < 4; ++y) {
+            for (int z = 0; z < 4; ++z) {
+                for (int x = 0; x < 4; ++x) {
+                    biomes[y * 16 + z * 4 + x] = world.biomeAt(chunkX * 16 + x * 4, -64 + section * 16 + y * 4, chunkZ * 16 + z * 4);
+                }
+            }
+        }
+        writePalettedContainer(data, biomes, 64, world.globalBiomeBits(), 1, 3);
     }
     return data.take();
 }

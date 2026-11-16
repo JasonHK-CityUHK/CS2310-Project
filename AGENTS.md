@@ -186,3 +186,15 @@ Update `README.md` when build prerequisites, generated data behavior, supported 
 - Read legacy version 1 broken-block saves; write protocol-777 version 2 block overrides.
 - Never commit runtime saves or macOS metadata. Tests must use temporary files.
 - After persistence changes, run `python3 tests/world_persistence_smoke.py build/src/mcserver`.
+
+## Read-only Anvil Import
+
+- `AnvilWorld` reads Java 26.3 / DataVersion 5023 metadata and nine existing Overworld chunks.
+- `MCSERVER_WORLD_DIR` selects the source snapshot; only the separate JSON overlay is writable.
+- Resolve full block properties against the pinned reports; never substitute air for unknown states.
+- Decode signed section Y despite the NBT library's unsigned-byte JSON representation.
+- Network and disk NBT/paletted-container formats are different; keep their codecs separate.
+- Keep biome IDs consistent with Configuration registry sorting.
+- Base terrain must be consulted when removing/restoring an override, at every Y level.
+- Reject unsupported versions/compression/missing chunks explicitly. Do not write original `.mca` files.
+- Anvil fixture tests are generated; personal real-world samples stay outside the repository.

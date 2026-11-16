@@ -6,8 +6,8 @@
 
 namespace mcserver::util {
 
-// Minimal MD5 implementation (RFC 1321), used only to derive offline-mode
-// player UUIDs the same way vanilla does: UUID.nameUUIDFromBytes("OfflinePlayer:" + name).
+// Minimal MD5 implementation (RFC 1321), used for offline-mode player UUIDs
+// and non-security fingerprints of imported world snapshots.
 [[nodiscard]] std::array<uint8_t, 16> md5(std::string_view input);
 
 // Builds a version-3 (name-based) UUID from raw MD5 bytes, matching

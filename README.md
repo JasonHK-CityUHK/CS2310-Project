@@ -213,6 +213,7 @@ Implemented:
 - Offline UUID login without encryption or compression
 - Runtime registry and tag packets sourced from the official server data pack
 - A 3x3 flat-world chunk area with a stone spawn layer
+- Read-only import of nine terrain chunks from Minecraft 26.3 Anvil saves
 - Full-bright sky and block light arrays
 - Player position, rotation, movement flags, teleport confirmation, player-loaded,
   and keep-alive packet handling
@@ -231,7 +232,7 @@ Not yet implemented:
 
 - Collision detection and comprehensive movement validation
 - Entity movement broadcasting
-- General Minecraft/Anvil world formats and entity persistence
+- General-version world support, original-world write-back, and entity persistence
 
 ## World Persistence
 
@@ -269,3 +270,46 @@ A real Minecraft client should also be used before classroom demonstration.
 
 Docker Compose mounts a named volume at `/opt/mcserver/world`. Normal
 `docker compose down` retains the save; `docker compose down -v` deletes it.
+
+## Read-only Minecraft 26.3 World Import
+
+Set `MCSERVER_WORLD_DIR` to a **copy** of a vanilla Java 26.3 world folder
+(DataVersion 5023). The loader reads named-root, big-endian disk NBT from
+`level.dat` and `dimensions/minecraft/overworld/region/r.*.*.mca`. It supports
+in-region gzip, zlib, and uncompressed chunks, string/compound block palettes,
+block properties, negative region coordinates, and biome palettes.
+
+The server loads nine fully generated chunks around the last saved single-player
+Overworld position when that player's data is available; otherwise it uses the
+level spawn. This initial implementation has a fixed 3x3 view, retains full-bright
+lighting, and does not load entities, block-entity content, or simulate redstone.
+Other DataVersions, dimensions, LZ4/custom compression, external `.mcc` chunks,
+missing chunks, and unknown block states produce explicit startup errors.
+
+```sh
+MCSERVER_WORLD_DIR="/path/to/copied-world" \
+MCSERVER_WORLD_FILE="world/imported-edits.json" \
+./build/src/mcserver 25566
+```
+
+Connect the 26.3 client to `localhost:25566`. The source world is opened for reading
+only. Mining/placement changes go to the separate JSON overlay, never to `.mca`
+or `level.dat`. Without `MCSERVER_WORLD_FILE`, import mode uses
+`world/imported.json`. Each overlay records a fingerprint of the loaded source
+chunks; a different or modified source is rejected rather than receiving the
+wrong edits. Keep the source snapshot unchanged for subsequent overlay loads.
+Legacy flat-world saves are kept separate. Leaving `MCSERVER_WORLD_DIR` unset
+preserves the original flat-world mode.
+
+Tests:
+
+```sh
+ctest --test-dir build --output-on-failure
+python3 tests/anvil_import_smoke.py build/src/mcserver /path/to/copied-world
+```
+
+The four generated Anvil fixture tests need no personal world files. The optional
+real-world TCP test independently decodes the source map, compares all 884,736
+block states and biome cells sent in the nine chunks, checks terrain edits across
+a restart, and verifies source-file hashes remain unchanged. Do not commit
+personal test worlds or player data to the repository.

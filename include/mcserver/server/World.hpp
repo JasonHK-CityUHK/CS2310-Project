@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mcserver/net/ByteBuffer.hpp"
+#include "mcserver/server/AnvilWorld.hpp"
 
 #include <memory>
 #include <optional>
@@ -17,6 +18,16 @@ namespace mcserver::server {
 class World {
 public:
     World();
+    void loadAnvil(std::filesystem::path const& directory);
+    [[nodiscard]] AnvilWorld::Spawn spawn() const { return imported_ ? imported_->spawn() : AnvilWorld::Spawn{0.5,1.0,0.5,0,0}; }
+    [[nodiscard]] bool imported() const { return imported_ != nullptr; }
+    [[nodiscard]] std::string identity() const { return imported_ ? imported_->identity() : "flat-stone-v1"; }
+    [[nodiscard]] std::string worldName() const { return imported_ ? imported_->name() : "flat world"; }
+    [[nodiscard]] int32_t biomeAt(int32_t x, int32_t y, int32_t z) const;
+    [[nodiscard]] bool isAirState(int32_t state) const { return airStates_.contains(state); }
+    [[nodiscard]] bool isFluidState(int32_t state) const { return fluidStates_.contains(state); }
+    [[nodiscard]] uint8_t globalBiomeBits() const { return globalBiomeBits_; }
+
     struct BlockChange { net::BlockPos position; int32_t state; };
     [[nodiscard]] std::vector<BlockChange> blockChanges() const;
     void restoreChanges(std::vector<BlockChange> const& changes);
@@ -39,6 +50,12 @@ public:
 
 private:
     void loadBlockItemMappings();
+    int32_t baseStateAt(net::BlockPos const& position) const;
+    bool editable(net::BlockPos const& position) const;
+    std::shared_ptr<AnvilWorld> imported_;
+    std::unordered_map<std::string, int32_t> blockStateIds_, defaultStates_, biomeIds_;
+    std::unordered_set<int32_t> airStates_, fluidStates_;
+    uint8_t globalBiomeBits_ = 6;
 
     struct BlockPosHash {
         size_t operator()(net::BlockPos const& position) const noexcept;

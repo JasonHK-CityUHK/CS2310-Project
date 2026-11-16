@@ -11,16 +11,52 @@
 #include <tuple>
 
 #include <nlohmann/json.hpp>
+#include "mcserver/protocol/DataPaths.hpp"
 
 namespace mcserver::server {
 
+namespace {
+std::string stateKey(std::string const& name, AnvilWorld::Properties const& properties) {
+    std::string key = name;
+    for (auto const& [property, value] : properties) { key += "|" + property + "=" + value; }
+    return key;
+}
+}
+
 World::World() { loadBlockItemMappings(); }
+
+void World::loadAnvil(std::filesystem::path const& directory) {
+    auto restored = std::make_shared<AnvilWorld>(directory,
+        [this](std::string const& name, AnvilWorld::Properties const& properties) {
+            auto const& table = properties.empty() ? defaultStates_ : blockStateIds_;
+            auto found = table.find(properties.empty() ? name : stateKey(name, properties));
+            if (found == table.end()) { throw std::runtime_error("unknown block state in world: " + stateKey(name, properties)); }
+            return found->second;
+        }, [this](std::string const& name) {
+            auto found = biomeIds_.find(name);
+            if (found == biomeIds_.end()) { throw std::runtime_error("unknown biome in world: " + name); }
+            return found->second;
+        });
+    imported_ = std::move(restored);
+    blockOverrides_.clear();
+    dirty_ = false;
+}
+
+int32_t World::baseStateAt(net::BlockPos const& position) const {
+    return imported_ ? imported_->blockStateAt(position) : (position.y == 0 ? 1 : 0);
+}
+bool World::editable(net::BlockPos const& position) const {
+    return contains(position) && (!imported_ || imported_->contains(position));
+}
+int32_t World::biomeAt(int32_t x, int32_t y, int32_t z) const {
+    return imported_ ? imported_->biomeAt(x,y,z) : 41;
+}
 
 int32_t World::blockStateAt(net::BlockPos const& position) const {
     if (auto block = blockOverrides_.find(position); block != blockOverrides_.end()) {
         return block->second;
     }
-    return position.y == 0 ? 1 : 0;
+    return baseStateAt(position);
 }
 
 bool World::contains(net::BlockPos const& position) {
@@ -29,8 +65,8 @@ bool World::contains(net::BlockPos const& position) {
 }
 
 void World::setBlockToAir(net::BlockPos const& position) {
-    if (!contains(position) || blockStateAt(position) == 0) { return; }
-    if (position.y == 0) { blockOverrides_[position] = 0; }
+    if (!editable(position) || isAirState(blockStateAt(position))) { return; }
+    if (baseStateAt(position) != 0) { blockOverrides_[position] = 0; }
     else { blockOverrides_.erase(position); }
     dirty_ = true;
 }
@@ -49,7 +85,7 @@ std::vector<World::BlockChange> World::blockChanges() const {
 void World::restoreChanges(std::vector<BlockChange> const& changes) {
     decltype(blockOverrides_) restored;
     for (auto const& change : changes) {
-        if (!contains(change.position) || !validBlockState(change.state) ||
+        if (!editable(change.position) || !validBlockState(change.state) ||
             !restored.emplace(change.position, change.state).second) {
             throw std::runtime_error("invalid or duplicate world block override");
         }
@@ -59,8 +95,8 @@ void World::restoreChanges(std::vector<BlockChange> const& changes) {
 }
 
 bool World::tryPlaceBlock(net::BlockPos const& position, int32_t blockState) {
-    if (!contains(position) || !validBlockState(blockState) || blockState == 0 || blockStateAt(position) != 0) { return false; }
-    if (position.y == 0 && blockState == 1) { blockOverrides_.erase(position); }
+    if (!editable(position) || !validBlockState(blockState) || isAirState(blockState) || !isAirState(blockStateAt(position))) { return false; }
+    if (baseStateAt(position) == blockState) { blockOverrides_.erase(position); }
     else { blockOverrides_[position] = blockState; }
     dirty_ = true;
     return true;
@@ -121,14 +157,32 @@ void World::loadBlockItemMappings() {
     blocksFile >> blocks;
 
     for (auto const& [blockName, blockData] : blocks.items()) {
-        (void)blockName;
+
         for (auto const& state : blockData.at("states")) {
-            validBlockStates_.insert(state.at("id").get<int32_t>());
+            auto stateId = state.at("id").get<int32_t>();
+            validBlockStates_.insert(stateId);
+            AnvilWorld::Properties properties;
+            if (state.contains("properties")) {
+                for (auto const& [key, value] : state.at("properties").items()) { properties[key] = value.get<std::string>(); }
+            }
+            blockStateIds_[stateKey(blockName, properties)] = stateId;
+            if (state.value("default", false)) { defaultStates_[blockName] = stateId; }
+            if (blockName == "minecraft:air" || blockName == "minecraft:cave_air" || blockName == "minecraft:void_air") { airStates_.insert(stateId); }
+            if (blockName == "minecraft:water" || blockName == "minecraft:lava" || blockName == "minecraft:bubble_column" ||
+                (properties.contains("waterlogged") && properties.at("waterlogged") == "true")) { fluidStates_.insert(stateId); }
             globalBlockStateBits_ =
                 std::max(globalBlockStateBits_,
                          static_cast<uint8_t>(std::bit_width(state.at("id").get<uint32_t>())));
         }
     }
+
+    std::vector<std::filesystem::path> biomes;
+    for (auto const& entry : std::filesystem::directory_iterator(protocol::registryDataPath() / "worldgen/biome")) {
+        if (entry.is_regular_file() && entry.path().extension() == ".json") { biomes.push_back(entry.path()); }
+    }
+    std::sort(biomes.begin(), biomes.end());
+    for (size_t index = 0; index < biomes.size(); ++index) { biomeIds_["minecraft:" + biomes[index].stem().string()] = static_cast<int32_t>(index); }
+    globalBiomeBits_ = static_cast<uint8_t>(std::bit_width(biomes.size() - 1));
 
     auto const& items = registries.at("minecraft:item").at("entries");
     for (auto const& [itemName, itemData] : items.items()) {
