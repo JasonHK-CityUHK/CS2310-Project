@@ -9,17 +9,18 @@ Run it from the extracted bundle directory:
 ./run-snapshot.sh
 ```
 
-Pass an optional port as the first argument, or choose a logging level with
-`MCSERVER_LOG_LEVEL=error`, `warning`, `info`, or `debug`:
+Set `server-port` in `server.properties` in the working directory to change
+the port. Choose a logging level with `MCSERVER_LOG_LEVEL=error`, `warning`,
+`info`, or `debug`:
 
 ```sh
-MCSERVER_LOG_LEVEL=debug ./run-snapshot.sh 25566
+MCSERVER_LOG_LEVEL=debug ./run-snapshot.sh
 ```
 
 The default port is 25565. The bundle is built for Linux and requires a
 compatible C++ runtime and zlib shared library on the host.
 
-Modified blocks are saved to `world/flat-world.json` relative to your current
-working directory. Set `MCSERVER_WORLD_FILE` to choose another path. Keep that
-file across upgrades, and use Ctrl+C for a final save before shutdown. The server
-also autosaves changed worlds every five seconds.
+Place an existing Java 26.3 world in `world` in the working directory, or set
+`level-name` in `server.properties` to another world directory. The server does
+not generate worlds or chunks. Only enclosed-stone edits are currently supported;
+back up the world before use. Changes autosave every five seconds and on Ctrl+C.

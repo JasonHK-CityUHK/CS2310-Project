@@ -15,6 +15,8 @@
 #include <limits>
 #include <span>
 
+#include <nlohmann/json.hpp>
+
 namespace mcserver::server {
 
 using net::ByteReader;
@@ -52,6 +54,7 @@ constexpr int32_t kConfigServerboundFinishConfigurationAck = 0x03;
 // Play clientbound packet IDs for protocol 777 / Minecraft 26.3.
 constexpr int32_t kPlayClientboundLogin = 0x32;
 constexpr int32_t kPlayClientboundGameEvent = 0x27;
+constexpr int32_t kPlayClientboundUnloadChunk = 0x26;
 constexpr int32_t kPlayClientboundPlayerAbilities = 0x41;
 constexpr int32_t kPlayClientboundSetContainerSlot = 0x14;
 constexpr int32_t kPlayClientboundPlayerPosition = 0x49;
@@ -98,10 +101,13 @@ void writeFullLightArray(net::ByteWriter& writer) {
     for (int index = 0; index < 2048; ++index) { writer.writeUByte(0xFF); }
 }
 
-ClientSession::ClientSession(std::shared_ptr<net::Connection> connection, std::shared_ptr<World> world)
+ClientSession::ClientSession(std::shared_ptr<net::Connection> connection, std::shared_ptr<World> world,
+                     std::string motd, int32_t viewDistance)
     : connection_(std::move(connection)),
       world_(std::move(world)),
-      keepAliveTimer_(connection_->socket().get_executor()) {}
+    keepAliveTimer_(connection_->socket().get_executor()),
+    motd_(std::move(motd)),
+    viewDistance_(viewDistance) {}
 
 void ClientSession::start() {
     auto self = shared_from_this();
@@ -146,11 +152,11 @@ void ClientSession::handleStatus(int32_t packetId, ByteReader& reader) {
     if (packetId == kStatusRequestId) {
         // Version/protocol per references/minecraft-wiki-w-Java-Edition-protocol-Packets.md line 1208
         // ("currently 777 in Minecraft 26.3") — the doc's documented "current" snapshot, not 1.21.4.
-        static constexpr auto kStatusJson = R"({"version":{"name":"26.3","protocol":777},)"
-                                             R"("players":{"max":20,"online":0},)"
-                                             R"("description":{"text":"CS2310 minimal MC server"}})";
+        nlohmann::json status{{"version", {{"name", "26.3"}, {"protocol", 777}}},
+                      {"players", {{"max", 20}, {"online", 0}}},
+                      {"description", {{"text", motd_}}}};
         ByteWriter body;
-        body.writeString(kStatusJson);
+        body.writeString(status.dump());
         connection_->send(kStatusResponseId, body);
     } else if (packetId == kPingRequestId) {
         int64_t timestamp = reader.readLong();
@@ -390,6 +396,10 @@ void ClientSession::handleMovement(double x, double y, double z, bool onGround) 
         return;
     }
     if (awaitingTeleportConfirmation_) { return; }
+    if (x < -33554432.0 || x >= 33554432.0 || z < -33554432.0 || z >= 33554432.0 || y < -64.0 || y >= 320.0) {
+        sendPlayerPosition();
+        return;
+    }
 
     double deltaX = x - positionX_;
     double deltaY = y - positionY_;
@@ -404,6 +414,11 @@ void ClientSession::handleMovement(double x, double y, double z, bool onGround) 
     positionY_ = y;
     positionZ_ = z;
     onGround_ = onGround;
+    if (world_->javaWorld()) {
+        int32_t chunkX = static_cast<int32_t>(std::floor(x / 16.0));
+        int32_t chunkZ = static_cast<int32_t>(std::floor(z / 16.0));
+        if (chunkX != centerChunkX_ || chunkZ != centerChunkZ_) { updateChunks(chunkX, chunkZ); }
+    }
 }
 
 void ClientSession::sendPlayerPosition() {
@@ -439,8 +454,11 @@ void ClientSession::sendBlockUpdate(net::BlockPos const& position, int32_t block
 
 void ClientSession::handleBlockBreak(int x, int y, int z) {
     net::BlockPos position{.x = x, .y = y, .z = z};
-    world_->setBlockToAir(position);
-    sendBlockUpdate(position, kAirBlockState);
+    if (world_->setBlockToAir(position)) {
+        sendBlockUpdate(position, kAirBlockState);
+    } else if (auto* java = world_->javaWorld()) {
+        if (auto state = java->blockStateAt(position)) { sendBlockUpdate(position, *state); }
+    }
 }
 
 void ClientSession::handleBlockPlacement(int hand, net::BlockPos const& target, int face) {
@@ -467,7 +485,12 @@ void ClientSession::handleBlockPlacement(int hand, net::BlockPos const& target, 
         .y = target.y + offset.y,
         .z = target.z + offset.z,
     };
-    if (!world_->tryPlaceBlock(position, *blockState)) { return; }
+    if (!world_->tryPlaceBlock(position, *blockState)) {
+        if (auto* java = world_->javaWorld()) {
+            if (auto state = java->blockStateAt(position)) { sendBlockUpdate(position, *state); }
+        }
+        return;
+    }
     sendBlockUpdate(position, *blockState);
 }
 
@@ -512,7 +535,7 @@ void ClientSession::sendPlayLogin() {
         body.writeVarInt(1);              // Game mode: Creative
         body.writeVarInt(0);              // Previous game mode: undefined
         body.writeBool(false);            // Is debug
-        body.writeBool(true);             // Is flat
+        body.writeBool(world_->javaWorld() == nullptr); // Is flat
         body.writeBool(false);            // Has death location
         body.writeVarInt(0);              // Portal cooldown
         body.writeVarInt(63);             // Sea level
@@ -545,6 +568,22 @@ void ClientSession::sendInitialInventory() {
 }
 
 void ClientSession::sendInitialSpawn() {
+        if (auto* java = world_->javaWorld()) {
+            auto const& level = java->level();
+            positionX_ = level.spawnX + 0.5;
+            positionY_ = level.spawnY;
+            positionZ_ = level.spawnZ + 0.5;
+            yaw_ = level.spawnYaw;
+            pitch_ = level.spawnPitch;
+            ByteWriter event;
+            event.writeUByte(13);
+            event.writeFloat(0.0f);
+            connection_->send(kPlayClientboundGameEvent, event);
+            sendPlayerPosition();
+            updateChunks(static_cast<int32_t>(std::floor(positionX_ / 16.0)),
+                         static_cast<int32_t>(std::floor(positionZ_ / 16.0)));
+            return;
+        }
         ByteWriter center;
         center.writeVarInt(0);
         center.writeVarInt(0);
@@ -563,8 +602,9 @@ void ClientSession::sendInitialSpawn() {
         ByteWriter start;
         connection_->send(kPlayClientboundChunkBatchStart, start);
 
-        for (int32_t chunkZ = -1; chunkZ <= 1; ++chunkZ) {
-            for (int32_t chunkX = -1; chunkX <= 1; ++chunkX) {
+        int32_t count = 0;
+        for (int32_t chunkZ = -viewDistance_; chunkZ <= viewDistance_; ++chunkZ) {
+            for (int32_t chunkX = -viewDistance_; chunkX <= viewDistance_; ++chunkX) {
                 ByteWriter body;
                 body.writeInt(chunkX);
                 body.writeInt(chunkZ);
@@ -586,12 +626,56 @@ void ClientSession::sendInitialSpawn() {
                 body.writeVarInt(26); // Block light arrays
                 for (int index = 0; index < 26; ++index) { writeFullLightArray(body); }
                 connection_->send(kPlayClientboundChunkData, body);
+                ++count;
             }
         }
 
         ByteWriter finished;
-        finished.writeVarInt(9);
+        finished.writeVarInt(count);
         connection_->send(kPlayClientboundChunkBatchFinished, finished);
     }
+
+void ClientSession::updateChunks(int32_t centerX, int32_t centerZ) {
+    ByteWriter center;
+    center.writeVarInt(centerX);
+    center.writeVarInt(centerZ);
+    connection_->send(kPlayClientboundSetCenterChunk, center);
+    centerChunkX_ = centerX;
+    centerChunkZ_ = centerZ;
+    for (auto iterator = sentChunks_.begin(); iterator != sentChunks_.end();) {
+        auto [chunkX, chunkZ] = *iterator;
+        if (std::abs(chunkX - centerX) <= viewDistance_ &&
+            std::abs(chunkZ - centerZ) <= viewDistance_) { ++iterator; continue; }
+        ByteWriter unload;
+        unload.writeInt(chunkZ);
+        unload.writeInt(chunkX);
+        connection_->send(kPlayClientboundUnloadChunk, unload);
+        iterator = sentChunks_.erase(iterator);
+    }
+    ByteWriter start;
+    connection_->send(kPlayClientboundChunkBatchStart, start);
+    int32_t count = 0;
+    for (int32_t chunkZ = centerZ - viewDistance_; chunkZ <= centerZ + viewDistance_; ++chunkZ) {
+        for (int32_t chunkX = centerX - viewDistance_; chunkX <= centerX + viewDistance_; ++chunkX) {
+            auto chunk = world_->javaWorld()->chunk(chunkX, chunkZ);
+            if (sentChunks_.contains({chunkX, chunkZ}) || !chunk) { continue; }
+            ByteWriter body;
+            body.writeInt(chunkX);
+            body.writeInt(chunkZ);
+            body.writeVarInt(0);
+            auto data = makeFlatChunkData(*world_, chunkX, chunkZ);
+            body.writeVarInt(static_cast<int32_t>(data.size()));
+            body.writeBytes(data);
+            body.writeVarInt(0);
+            writeJavaChunkLight(body, chunk->data);
+            connection_->send(kPlayClientboundChunkData, body);
+            sentChunks_.insert({chunkX, chunkZ});
+            ++count;
+        }
+    }
+    ByteWriter finished;
+    finished.writeVarInt(count);
+    connection_->send(kPlayClientboundChunkBatchFinished, finished);
+}
 
 } // namespace mcserver::server

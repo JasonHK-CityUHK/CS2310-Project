@@ -16,5 +16,6 @@ namespace mcserver::protocol {
 [[nodiscard]] std::string toJavaNetworkNbt(nbt::CompoundTag const& tag);
 [[nodiscard]] std::string toJavaNetworkNbt(nbt::CompoundTagVariant const& tag);
 [[nodiscard]] nbt::CompoundTag fromJavaNetworkNbt(std::string_view data);
+[[nodiscard]] nbt::CompoundTag fromJavaDiskNbt(std::string_view data);
 
 } // namespace mcserver::protocol

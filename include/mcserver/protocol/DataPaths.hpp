@@ -12,6 +12,9 @@
 #ifndef MCSERVER_VANILLA_DATA_DIR
 #error "MCSERVER_VANILLA_DATA_DIR must be defined by the build"
 #endif
+#ifndef MCSERVER_VANILLA_REPORTS_DIR
+#error "MCSERVER_VANILLA_REPORTS_DIR must be defined by the build"
+#endif
 
 namespace mcserver::protocol {
 
@@ -34,6 +37,13 @@ inline std::filesystem::path vanillaDataPath() {
         return std::filesystem::path(dataRoot) / "data/minecraft";
     }
     return MCSERVER_VANILLA_DATA_DIR;
+}
+
+inline std::filesystem::path vanillaReportsPath() {
+    if (char const* dataRoot = std::getenv("MCSERVER_DATA_DIR"); dataRoot && *dataRoot) {
+        return std::filesystem::path(dataRoot) / "data/reports";
+    }
+    return MCSERVER_VANILLA_REPORTS_DIR;
 }
 
 } // namespace mcserver::protocol

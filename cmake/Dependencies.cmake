@@ -1,6 +1,17 @@
 include(FetchContent)
 set(FETCHCONTENT_QUIET ON)
 
+FetchContent_Declare(
+    lz4
+    GIT_REPOSITORY https://github.com/lz4/lz4.git
+    GIT_TAG v1.10.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_Populate(lz4)
+add_library(mcserver_lz4 STATIC "${lz4_SOURCE_DIR}/lib/lz4.c" "${lz4_SOURCE_DIR}/lib/xxhash.c")
+target_include_directories(mcserver_lz4 SYSTEM PUBLIC "${lz4_SOURCE_DIR}/lib")
+target_compile_definitions(mcserver_lz4 PRIVATE XXH_NAMESPACE=MCSERVER_)
+
 # --- asio (standalone, header-only) -----------------------------------------
 FetchContent_Declare(
     asio

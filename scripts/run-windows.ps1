@@ -1,7 +1,3 @@
-param(
-    [int]$Port = 25565
-)
-
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $executable = Join-Path $projectRoot "build\src\Release\mcserver.exe"
@@ -15,5 +11,5 @@ if (-not (Test-Path $dataRoot)) {
 }
 
 $env:MCSERVER_DATA_DIR = $dataRoot
-& $executable $Port
+& $executable
 exit $LASTEXITCODE

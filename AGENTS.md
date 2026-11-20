@@ -9,14 +9,13 @@ The server currently supports:
 - Handshake, Status, Login, Configuration, and Play state transitions
 - Offline-mode login without encryption or compression
 - Runtime registry and tag packets
-- A 3x3 flat-world chunk area with a stone spawn layer
-- Full-bright sky and block lighting
+- Existing Java 26.3 overworld chunks streamed around players
+- Saved biome and lighting data in chunk packets
 - Basic player movement, rotation, teleport confirmation, player-loaded, and keep-alive packets
-- Player block breaking with in-memory block updates broadcast to other players
-- Basic placement of vanilla block items into air blocks
+- Restricted enclosed-stone edits with updates broadcast to other players
 
-JSON persistence for broken and placed blocks is implemented.
-Collision validation, entity broadcasting, and general world formats are not implemented yet.
+Java 26.3 Anvil persistence is implemented for supported edits.
+World generation, collision validation, entity broadcasting, and general block behavior are not implemented yet.
 
 ## Repository Layout
 
@@ -32,7 +31,7 @@ Collision validation, entity broadcasting, and general world formats are not imp
 ## Build Requirements
 
 - CMake 3.24 or newer
-- A C++23 compiler, preferably GCC 13+ or a current Clang
+- C and C++23 compilers, preferably GCC 13+ or a current Clang
 - Git, because dependencies are fetched with CMake FetchContent
 - Internet access for the first configure/build, to fetch C++ dependencies and the official Minecraft server bundle
 
@@ -41,6 +40,7 @@ Dependencies are pinned in `cmake/Dependencies.cmake`:
 - Asio 1.38.2
 - GlacieTeam/BinaryStream 2.3.2
 - GlacieTeam/NBT 2.6.3
+- LZ4 1.10.0
 - nlohmann/json 3.11.3
 - Catch2 3.16.0
 
@@ -67,10 +67,10 @@ Run the server on the default port:
 ./build/src/mcserver
 ```
 
-Run on another port:
+To run on another port, set `server-port=25566` in `server.properties`, then run:
 
 ```sh
-./build/src/mcserver 25566
+./build/src/mcserver
 ```
 
 The executable listens on port 25565 by default. Do not start a second server on a port already in use; inspect or stop the existing process first.
@@ -178,11 +178,11 @@ Update `README.md` when build prerequisites, generated data behavior, supported 
 
 ## World Persistence
 
-- `World` owns block overrides and dirty state; `WorldStorage` owns versioned JSON I/O.
-- Default save: `world/flat-world.json`; override via `MCSERVER_WORLD_FILE`.
+- `JavaWorld` owns cached chunks and dirty state; `RegionFile` owns Anvil I/O.
+- Select an existing Java 26.3 world through `level-name` in `server.properties`; default `world`, relative to cwd.
 - Autosave dirty state every five seconds and save on normal SIGINT/SIGTERM shutdown.
 - Load transactionally. Corrupt/incompatible saves must stop startup without being replaced.
 - Preserve the last good snapshot on write failure and keep dirty state for retry.
-- Read legacy version 1 broken-block saves; write protocol-777 version 2 block overrides.
+- Do not generate missing chunks or migrate legacy JSON saves. Protect unsupported world data during edits.
 - Never commit runtime saves or macOS metadata. Tests must use temporary files.
 - After persistence changes, run `python3 tests/world_persistence_smoke.py build/src/mcserver`.

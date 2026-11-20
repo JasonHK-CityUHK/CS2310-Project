@@ -26,3 +26,17 @@ TEST_CASE("toJavaNetworkNbt round-trips and omits the root name", "[nbt]") {
     REQUIRE(static_cast<int>(decoded["an_int"]) == 42);
     REQUIRE(static_cast<std::string const&>(decoded["a_string"]) == "hello");
 }
+
+TEST_CASE("Java disk NBT validates named root and malformed input", "[nbt][disk-nbt]") {
+    nbt::CompoundTag tag{{"value", 42}};
+    auto data = tag.toBinaryNbt(false);
+    REQUIRE(static_cast<int>(fromJavaDiskNbt(data)["value"]) == 42);
+    REQUIRE_THROWS(fromJavaDiskNbt(data.substr(0, data.size() - 1)));
+    REQUIRE_THROWS(fromJavaDiskNbt(data + '\0'));
+    REQUIRE_THROWS(fromJavaDiskNbt(std::string("\x01\0\0", 3)));
+    REQUIRE_THROWS(fromJavaDiskNbt(std::string("\x0a\0\0\x09\0\x01x\x01\xff\xff\xff\xff\0", 13)));
+    std::string longName("\x0a\x80\x00", 3);
+    longName.append(32768, 'a');
+    longName.push_back('\0');
+    REQUIRE_THROWS(fromJavaDiskNbt(longName));
+}

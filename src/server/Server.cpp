@@ -9,16 +9,15 @@
 namespace mcserver::server {
 
 Server::Server(asio::io_context& ioContext, std::string bindAddress, uint16_t port,
-               std::filesystem::path worldFile)
+           std::filesystem::path worldDirectory, std::string motd, int32_t viewDistance)
     : ioContext_(ioContext),
       acceptor_(ioContext, asio::ip::tcp::endpoint(asio::ip::make_address(bindAddress), port)),
-      autosaveTimer_(ioContext_), storage_(std::move(worldFile)) {
+    autosaveTimer_(ioContext_), motd_(std::move(motd)), viewDistance_(viewDistance) {
     try {
-        bool loaded = storage_.load(*world_);
-        util::log(util::LogLevel::Info,
-                  std::string(loaded ? "loaded world from " : "new world; save path ") + storage_.path().string());
+                world_ = std::make_shared<World>(worldDirectory);
+                util::log(util::LogLevel::Info, "loaded world from " + worldDirectory.string());
     } catch (std::exception const& error) {
-        throw std::runtime_error("cannot load world '" + storage_.path().string() + "': " + error.what());
+                throw std::runtime_error("cannot load world '" + worldDirectory.string() + "': " + error.what());
     }
 }
 
@@ -37,12 +36,11 @@ bool Server::stop() {
 bool Server::saveWorld() {
     if (!world_->dirty()) { return true; }
     try {
-        storage_.save(*world_);
-        world_->markSaved();
-        util::log(util::LogLevel::Info, "saved world to " + storage_.path().string());
+        world_->saveJavaWorld();
+        util::log(util::LogLevel::Info, "saved world");
         return true;
     } catch (std::exception const& error) {
-        util::log(util::LogLevel::Error, "cannot save world '" + storage_.path().string() + "': " + error.what());
+        util::log(util::LogLevel::Error, std::string("cannot save world: ") + error.what());
         return false;
     }
 }
@@ -61,7 +59,7 @@ void Server::doAccept() {
         if (!ec) {
             socket.set_option(asio::ip::tcp::no_delay(true));
             auto connection = std::make_shared<net::Connection>(std::move(socket));
-            auto session = std::make_shared<ClientSession>(connection, world_);
+            auto session = std::make_shared<ClientSession>(connection, world_, motd_, viewDistance_);
             session->start();
         } else if (acceptor_.is_open()) {
             util::log(util::LogLevel::Warning, "accept failed: " + ec.message());

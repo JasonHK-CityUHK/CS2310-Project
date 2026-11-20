@@ -5,7 +5,10 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <limits>
+#include <set>
 #include <string>
+#include <utility>
 
 namespace mcserver::server {
 
@@ -15,7 +18,8 @@ class World;
 // Handshake -> (Status | Login -> Configuration -> Play).
 class ClientSession : public std::enable_shared_from_this<ClientSession> {
 public:
-    ClientSession(std::shared_ptr<net::Connection> connection, std::shared_ptr<World> world);
+    ClientSession(std::shared_ptr<net::Connection> connection, std::shared_ptr<World> world,
+                  std::string motd, int32_t viewDistance = 10);
 
     void start();
 
@@ -38,6 +42,7 @@ private:
     void sendInitialInventory();
     void sendInitialSpawn();
     void sendInitialChunks();
+    void updateChunks(int32_t centerX, int32_t centerZ);
     void handleMovement(double x, double y, double z, bool onGround);
     void sendPlayerPosition();
     void handleBlockPlacement(int hand, net::BlockPos const& target, int face);
@@ -48,6 +53,8 @@ private:
     std::shared_ptr<net::Connection> connection_;
     std::shared_ptr<World> world_;
     asio::steady_timer keepAliveTimer_;
+    std::string motd_;
+    int32_t viewDistance_ = 10;
     std::string playerName_;
     double positionX_ = 0.5;
     double positionY_ = 1.0;
@@ -61,6 +68,9 @@ private:
     int32_t nextTeleportId_ = 0;
     int32_t pendingTeleportId_ = -1;
     bool awaitingTeleportConfirmation_ = false;
+    int32_t centerChunkX_ = std::numeric_limits<int32_t>::min();
+    int32_t centerChunkZ_ = std::numeric_limits<int32_t>::min();
+    std::set<std::pair<int32_t, int32_t>> sentChunks_;
 };
 
 } // namespace mcserver::server

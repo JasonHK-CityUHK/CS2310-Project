@@ -92,3 +92,29 @@ TEST_CASE("Chunk data uses the global palette for many placed block states", "[c
     REQUIRE(section.palette.empty());
     REQUIRE((section.blockData[64] & 0xFFFF) == 2000);
 }
+
+TEST_CASE("Java chunk lighting sends empty block light and inherited skylight", "[chunk]") {
+    nbt::CompoundTag section{{"Y", static_cast<int8_t>(0)}, {"SkyLight", nbt::ByteArrayTag(std::vector<uint8_t>(2048, 0))}};
+    nbt::CompoundTag chunk{{"sections", nbt::ListTag({section})}};
+    net::ByteWriter writer;
+    server::writeJavaChunkLight(writer, chunk);
+    net::ByteReader reader{std::span<const std::byte>(writer.data())};
+    auto readMask = [&reader]() {
+        uint64_t result = 0;
+        int32_t length = reader.readVarInt();
+        for (int32_t index = 0; index < length; ++index) { result |= static_cast<uint64_t>(reader.readUByte()) << (index * 8); }
+        return result;
+    };
+    REQUIRE(readMask() == (((uint64_t{1} << 26) - 1) & ~((uint64_t{1} << 6) - 1)));
+    REQUIRE(readMask() == 0);
+    REQUIRE(readMask() == ((uint64_t{1} << 6) - 1));
+    REQUIRE(readMask() == ((uint64_t{1} << 26) - 1));
+    REQUIRE(reader.readVarInt() == 20);
+    for (int index = 0; index < 20; ++index) {
+        REQUIRE(reader.readVarInt() == 2048);
+        auto bytes = reader.readByteArray(2048);
+        REQUIRE(bytes.front() == std::byte{0xff});
+    }
+    REQUIRE(reader.readVarInt() == 0);
+    REQUIRE(reader.remaining() == 0);
+}

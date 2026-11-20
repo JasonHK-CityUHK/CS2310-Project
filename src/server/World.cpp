@@ -1,6 +1,7 @@
 #include "mcserver/server/World.hpp"
 
 #include "mcserver/net/Connection.hpp"
+#include "mcserver/protocol/DataPaths.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -16,7 +17,16 @@ namespace mcserver::server {
 
 World::World() { loadBlockItemMappings(); }
 
+World::World(std::filesystem::path const& directory) : javaWorld_(std::make_shared<JavaWorld>(directory)) {
+    loadBlockItemMappings();
+}
+
 int32_t World::blockStateAt(net::BlockPos const& position) const {
+    if (javaWorld_) {
+        auto state = javaWorld_->blockStateAt(position);
+        if (!state) { throw std::runtime_error("block is outside loaded world chunks"); }
+        return *state;
+    }
     if (auto block = blockOverrides_.find(position); block != blockOverrides_.end()) {
         return block->second;
     }
@@ -28,11 +38,18 @@ bool World::contains(net::BlockPos const& position) {
            position.z >= -33554432 && position.z <= 33554431 && position.y >= -64 && position.y < 320;
 }
 
-void World::setBlockToAir(net::BlockPos const& position) {
-    if (!contains(position) || blockStateAt(position) == 0) { return; }
+bool World::setBlockToAir(net::BlockPos const& position) {
+    if (javaWorld_) { return javaWorld_->setBlock(position, 0); }
+    if (!contains(position) || blockStateAt(position) == 0) { return false; }
     if (position.y == 0) { blockOverrides_[position] = 0; }
     else { blockOverrides_.erase(position); }
     dirty_ = true;
+    return true;
+}
+
+void World::saveJavaWorld() {
+    if (!javaWorld_) { throw std::runtime_error("not a Java world"); }
+    javaWorld_->save();
 }
 
 std::vector<World::BlockChange> World::blockChanges() const {
@@ -59,6 +76,7 @@ void World::restoreChanges(std::vector<BlockChange> const& changes) {
 }
 
 bool World::tryPlaceBlock(net::BlockPos const& position, int32_t blockState) {
+    if (javaWorld_) { return javaWorld_->setBlock(position, blockState); }
     if (!contains(position) || !validBlockState(blockState) || blockState == 0 || blockStateAt(position) != 0) { return false; }
     if (position.y == 0 && blockState == 1) { blockOverrides_.erase(position); }
     else { blockOverrides_[position] = blockState; }
@@ -106,11 +124,11 @@ size_t World::BlockPosHash::operator()(net::BlockPos const& position) const noex
 }
 
 void World::loadBlockItemMappings() {
-    std::ifstream registryFile(std::filesystem::path(MCSERVER_VANILLA_REPORTS_DIR) / "registries.json");
+    std::ifstream registryFile(protocol::vanillaReportsPath() / "registries.json");
     if (!registryFile) {
         throw std::runtime_error("failed to open Minecraft registry report");
     }
-    std::ifstream blocksFile(std::filesystem::path(MCSERVER_VANILLA_REPORTS_DIR) / "blocks.json");
+    std::ifstream blocksFile(protocol::vanillaReportsPath() / "blocks.json");
     if (!blocksFile) {
         throw std::runtime_error("failed to open Minecraft block report");
     }

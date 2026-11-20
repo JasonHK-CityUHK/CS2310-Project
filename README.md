@@ -2,19 +2,18 @@
 
 A minimal C++23 Minecraft Java Edition server for protocol experimentation. The
 server currently supports offline login, Configuration registry/tag exchange,
-flat-world chunk loading, full-bright lighting, basic Play movement packets,
-block breaking and placement with in-memory world updates broadcast to players,
-and keep-alive traffic.
+loading existing Java 26.3 overworld chunks, basic Play movement packets,
+restricted block edits, and keep-alive traffic.
 
 ## Requirements
 
 - CMake 3.24 or newer
-- A C++23 compiler (GCC 13+ or Clang with C++23 support)
+- C and C++23 compilers (GCC 13+ or Clang with C++23 support)
 - Git, for CMake FetchContent dependencies
 - Internet access during the first configure/build
 
-The build downloads Asio, GlacieTeam/BinaryStream, GlacieTeam/NBT, nlohmann/json,
-Catch2, and the official Minecraft 26.3 server bundle. The protocol registry
+The build downloads Asio, GlacieTeam/BinaryStream, GlacieTeam/NBT, LZ4,
+nlohmann/json, Catch2, and the official Minecraft 26.3 server bundle. The protocol registry
 and block-state ID reports must be present in `data/blocks.json` and
 `data/registries.json`; CMake copies these files into the runtime data directory.
 Neither Java nor Go is required.
@@ -77,10 +76,11 @@ Minecraft connects. You should see:
 localhost
 ```
 
-The optional port is the first argument to the launcher:
+To use another port, add `server-port=25566` to `server.properties` in the
+working directory, then run:
 
 ```powershell
-.\scripts\run-windows.ps1 25566
+.\scripts\run-windows.ps1
 ```
 
 For that example, connect to `localhost:25566` in Minecraft.
@@ -115,12 +115,15 @@ project directory, run this the first time:
 
 ```bat
 docker compose build
-docker compose up
+docker compose create
+docker compose cp ./Sample/. mcserver:/opt/mcserver/world/
+docker compose start --attach
 ```
 
 `docker compose build` installs the compiler, CMake, Git, and zlib inside the
 image, downloads the C++ dependencies and Minecraft 26.3 data, and builds the
-Linux server. `docker compose up` then starts the server. Compose maps the
+Linux server. Replace `./Sample` with an existing extracted 26.3 world directory.
+The copy step populates the persistent volume; no world is generated. Compose maps the
 host's port `25565` to the container's port `25565`, so connect Minecraft Java
 Edition **26.3** to:
 
@@ -179,6 +182,15 @@ cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
 
+To check the standalone reader against a zipped world whose root directory is
+named `Sample`, build `mcserver_tests` and run:
+
+```sh
+python3 tests/java_world_sample.py /path/to/world.zip build/tests/mcserver_tests build/src/mcserver
+```
+
+The archive is extracted into a temporary directory for the test.
+
 The GitHub Actions snapshot workflow builds and tests on pushes and pull requests.
 It uploads a Linux snapshot archive containing the executable, generated
 Minecraft runtime data, and a `run-snapshot.sh` launcher. The artifact is retained
@@ -186,12 +198,24 @@ for 14 days.
 
 ## Run
 
-The server listens on port `25565` by default. A different port can be supplied
-as the first argument:
+The server reads `server.properties` in its working directory. It supports
+`server-ip` (empty means all IPv4 interfaces), `server-port` (default 25565),
+`motd` (default `CS2310 minimal MC server`), and `level-name` (default `world`).
+Other settings are ignored. `level-name` identifies an existing extracted world
+directory relative to the working directory. The server does not create worlds
+or generate missing chunks. For example, extract the supplied archive and set:
+
+```properties
+server-ip=127.0.0.1
+server-port=25566
+motd=My Minecraft server
+level-name=Sample
+```
+
+Start the server with:
 
 ```sh
 ./build/src/mcserver
-./build/src/mcserver 25566
 ```
 
 Logging defaults to `info`. Set `MCSERVER_LOG_LEVEL` to `error`, `warning`,
@@ -212,51 +236,51 @@ Implemented:
 - Handshake, Status, Login, Configuration, and Play state transitions
 - Offline UUID login without encryption or compression
 - Runtime registry and tag packets sourced from the official server data pack
-- A 3x3 flat-world chunk area with a stone spawn layer
-- Full-bright sky and block light arrays
+- Existing Java 26.3 overworld chunks streamed around the saved spawn and players
+- Saved biome palettes and light arrays in chunk packets
 - Player position, rotation, movement flags, teleport confirmation, player-loaded,
   and keep-alive packet handling
 - Basic movement checks that reject non-finite coordinates and correct
   per-packet jumps over 10 blocks; collision validation is still pending
 - Creative-mode player abilities and an initial inventory
-- Block breaking with shared in-memory updates broadcast to other players
-- Basic placement of vanilla block items from the hotbar or offhand into air
+- Restricted enclosed-stone breaking and replacement with shared updates
 - Windows build/run scripts and Docker configuration
-- JSON save/load of broken and placed block states across server restarts
+- Java level metadata and Anvil region loading and saving
 - Automatic saves every five seconds and a final save on normal shutdown
-- Failed-save retries, corrupt-save protection, and legacy version 1 save compatibility
+- Failed-save retries and corrupt-save protection
 - A Docker Compose volume for retaining world saves across container recreation
 
 Not yet implemented:
 
 - Collision detection and comprehensive movement validation
 - Entity movement broadcasting
-- General Minecraft/Anvil world formats and entity persistence
+- New-world or chunk generation, other dimensions, and entity persistence
+- General block editing and block entity simulation
 
 ## World Persistence
 
-Modified block states are saved to `world/flat-world.json`, relative to the
-working directory. Set `MCSERVER_WORLD_FILE` to choose another path. Each running
-server must use a separate save file. Vanilla registry/report data remains
-separate from the writable world save.
+Worlds must be existing Java 26.3 saves with data version 5023. The server
+locks `session.lock` while running and reads the Overworld's region files under
+`dimensions/minecraft/overworld/region`. It supports gzip, zlib, uncompressed,
+and Java LZ4 chunks, including external chunks for reading. External chunk
+writes are not supported. Other dimensions and unsupported world files are not changed.
+Back up a world before using it: opening a saved world in the vanilla client
+after edits has not yet been verified.
+
+For safety, edits are currently restricted to breaking stone or replacing it
+with stone when all 26 neighboring blocks are stone and the position is inside
+the chunk boundary. Edits are rejected in chunks with block entities, pending
+block/fluid ticks, point-of-interest data, or external chunk storage. Other
+blocks cannot yet be placed or broken.
 
 Changed worlds autosave every five seconds and once more on Ctrl+C (SIGINT) or
-SIGTERM. A forced kill may lose changes since the last successful save. Snapshots
-are written to a neighboring `.tmp` file, closed, then renamed over the save.
-Write failures preserve the last complete save and are retried at the next tick;
-a failed final save exits with status 1. Missing saves start a new world. Corrupt,
-invalid, or incompatible saves stop startup without overwriting the file.
-
-Version 2 stores block overrides as `blocks` entries with integer `x`, `y`, `z`,
-and `state`, together with `protocol: 777` and `world: "flat-stone-v1"`. Both
-broken blocks (state 0) and placed blocks are restored. Legacy version 1
-`broken_blocks` saves from the earlier flat-world prototype are accepted and
-upgraded on the next successful save. States are validated against the generated
-vanilla block report. The format is not Minecraft Anvil. Saves are limited to
-100,000 overrides and 32 MiB; coordinate height is -64..319.
+SIGTERM. A forced kill may lose changes since the last successful save. Region
+updates are written to a neighboring temporary file and atomically replaced.
+Write failures preserve the last complete region and are retried; a failed final
+save exits with status 1. Missing, corrupt, or incompatible worlds stop startup.
+Saves across different regions are not an atomic transaction.
 
 ```sh
-MCSERVER_WORLD_FILE=world/demo.json ./build/src/mcserver
 ctest --test-dir build --output-on-failure
 python3 tests/world_persistence_smoke.py build/src/mcserver
 ```

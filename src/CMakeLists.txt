@@ -10,8 +10,14 @@ add_library(mcserver_core
     protocol/Tags.cpp
     server/ChunkData.cpp
     server/ClientSession.cpp
+    server/JavaWorld.cpp
+    server/LevelData.cpp
+    server/RegionFile.cpp
+    server/SectionData.cpp
     server/Server.cpp
+    server/ServerProperties.cpp
     server/WorldStorage.cpp
+    server/WorldLock.cpp
     server/World.cpp
 )
 add_dependencies(mcserver_core mcserver_data)
@@ -24,6 +30,8 @@ target_link_libraries(mcserver_core PUBLIC
     asio
     glacie_nbt
     nlohmann_json::nlohmann_json
+    ZLIB::ZLIB
+    mcserver_lz4
 )
 
 target_compile_features(mcserver_core PUBLIC cxx_std_23)

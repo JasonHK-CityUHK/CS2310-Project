@@ -56,9 +56,11 @@ class Buffer:
 
 
 class Client:
-    def __init__(self, port, name):
+    def __init__(self, port, name, expected_spawn=None, expected_chunks=9):
         self.socket = socket.create_connection(('127.0.0.1', port), timeout=5)
         self.send(0, varint(777) + text('localhost') + struct.pack('>H', port) + varint(2))
+        self.expected_spawn = expected_spawn
+        self.expected_chunks = expected_chunks
         self.send(0, text(name) + bytes(16))
         assert self.receive()[0] == 2, 'login success'
         self.send(3)
@@ -85,8 +87,10 @@ class Client:
                 self.chunks[x, z] = chunk.read(chunk.integer())
             if packet_id == 0x0B:
                 break
-        assert len(self.chunks) == 9
-        assert self.current_position == (.5, 1., .5), 'player should spawn on the stone layer'
+        if self.expected_chunks is not None:
+            assert len(self.chunks) == self.expected_chunks
+        if self.expected_spawn is not None:
+            assert self.current_position == self.expected_spawn, 'unexpected world spawn'
         assert self.abilities_flags is not None and not self.abilities_flags & 0x02, \
             'player should not spawn with flight enabled'
         self.send(0, varint(self.teleport_id) + struct.pack('>dddff', *self.current_position, 0., 0.))
@@ -136,7 +140,7 @@ def chunk_state(data, x, z, y=0):
     result = None
     for section in range(24):
         blocks, fluid = struct.unpack('>hh', chunk.read(4))
-        assert fluid == 0
+        assert 0 <= fluid <= 4096
         bits = chunk.read(1)[0]
         if bits == 0:
             value = chunk.integer()
@@ -150,7 +154,15 @@ def chunk_state(data, x, z, y=0):
             value = palette[local] if palette is not None else local
         if section == (y + 64) // 16:
             result = (value, blocks)
-        assert chunk.read(1) == b'\0'
-        chunk.integer()
+        biome_bits = chunk.read(1)[0]
+        if biome_bits == 0:
+            chunk.integer()
+        else:
+            if biome_bits <= 3:
+                for _ in range(chunk.integer()):
+                    chunk.integer()
+            biome_per_word = 64 // biome_bits
+            biome_words = (64 + biome_per_word - 1) // biome_per_word
+            chunk.read(biome_words * 8)
     assert chunk.cursor == len(data)
     return result

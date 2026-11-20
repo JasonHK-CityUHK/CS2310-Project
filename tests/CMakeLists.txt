@@ -4,7 +4,12 @@ add_executable(mcserver_tests
     util_Logger_test.cpp
     protocol_Nbt_test.cpp
     server_ChunkData_test.cpp
+    server_LevelData_test.cpp
+    server_RegionFile_test.cpp
+    server_SectionData_test.cpp
+    server_ServerProperties_test.cpp
     server_WorldStorage_test.cpp
+    server_WorldLock_test.cpp
     server_World_test.cpp
 )
 
