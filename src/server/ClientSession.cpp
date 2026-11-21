@@ -57,6 +57,7 @@ constexpr int32_t kPlayClientboundGameEvent = 0x27;
 constexpr int32_t kPlayClientboundUnloadChunk = 0x26;
 constexpr int32_t kPlayClientboundPlayerAbilities = 0x41;
 constexpr int32_t kPlayClientboundSetContainerSlot = 0x14;
+constexpr int32_t kPlayClientboundSetContainerContent = 0x12;
 constexpr int32_t kPlayClientboundPlayerPosition = 0x49;
 constexpr int32_t kPlayClientboundSetCenterChunk = 0x60;
 constexpr int32_t kPlayClientboundChunkBatchFinished = 0x0B;
@@ -77,6 +78,7 @@ constexpr int32_t kPlayServerboundPlayerAction = 0x29;
 constexpr int32_t kPlayServerboundSetHeldItem = 0x36;
 constexpr int32_t kPlayServerboundSetCreativeModeSlot = 0x39;
 constexpr int32_t kPlayServerboundUseItemOn = 0x42;
+constexpr int32_t kPlayServerboundClickContainer = 0x12;
 
 constexpr int32_t kPlayerActionStartDigging = 0;
 constexpr int32_t kPlayerActionFinishDigging = 2;
@@ -115,6 +117,9 @@ void ClientSession::start() {
     connection_->setDisconnectHandler([self]() {
         self->keepAliveTimer_.cancel();
         self->world_->removePlayer(self->connection_.get());
+        if (self->hasPlayerUuid_) {
+            self->savePlayerProfile();
+        }
     });
     connection_->start();
 }
@@ -180,6 +185,8 @@ void ClientSession::handleLogin(int32_t packetId, ByteReader& reader) {
         }
 
         auto uuid = util::offlinePlayerUuid(playerName_);
+        playerUuid_ = uuid;
+        hasPlayerUuid_ = true;
 
         ByteWriter body;
         body.writeUuid(uuid);         // Game Profile: UUID
@@ -298,6 +305,9 @@ void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
         if (!awaitingTeleportConfirmation_) {
             yaw_ = yaw;
             pitch_ = pitch;
+            profile_.position.yaw = yaw;
+            profile_.position.pitch = pitch;
+            profile_.position.saved = true;
         }
         break;
     }
@@ -313,12 +323,18 @@ void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
             yaw_ = yaw;
             pitch_ = pitch;
             onGround_ = onGround;
+            profile_.position.yaw = yaw;
+            profile_.position.pitch = pitch;
+            profile_.position.onGround = onGround;
+            profile_.position.saved = true;
         }
         break;
     }
     case kPlayServerboundSetPlayerMovementFlags:
         if (!awaitingTeleportConfirmation_) {
             onGround_ = reader.readBool();
+            profile_.position.onGround = onGround_;
+            profile_.position.saved = true;
         } else {
             (void)reader.readBool();
         }
@@ -330,19 +346,99 @@ void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
             break;
         }
         selectedHotbarSlot_ = slot;
+        inventory_.selectedHotbarSlot = slot;
+        profile_.inventory = inventory_;
+        savePlayerProfile();
         break;
     }
     case kPlayServerboundSetCreativeModeSlot: {
         int16_t slot = reader.readShort();
         int32_t count = reader.readVarInt();
         int32_t itemId = 0;
-        if (count > 0) { itemId = reader.readVarInt(); }
+        if (count > 0) {
+            itemId = reader.readVarInt();
+            (void)reader.readVarInt();
+            (void)reader.readVarInt();
+        }
 
+        InventorySlot updated{.itemId = itemId, .count = count > 0 ? count : 0};
         if (slot >= 36 && slot <= 44) {
-            hotbarItemIds_[static_cast<size_t>(slot - 36)] = itemId;
+            size_t hotbarIndex = static_cast<size_t>(slot - 36);
+            hotbarItemIds_[hotbarIndex] = itemId;
+            inventory_.hotbar[hotbarIndex] = updated;
+        } else if (slot >= 9 && slot <= 35) {
+            inventory_.main[static_cast<size_t>(slot - 9)] = updated;
+        } else if (slot >= 5 && slot <= 8) {
+            inventory_.armor[static_cast<size_t>(slot - 5)] = updated;
         } else if (slot == 45) {
             offhandItemId_ = itemId;
+            inventory_.offhand = updated;
         }
+        profile_.inventory = inventory_;
+        savePlayerProfile();
+        break;
+    }
+    case kPlayServerboundClickContainer: {
+        (void)reader.readVarInt(); // Window ID
+        (void)reader.readVarInt(); // State ID
+        (void)reader.readShort();  // Clicked slot
+        (void)reader.readByte();   // Button
+        (void)reader.readVarInt(); // Mode
+
+        auto readHashedSlot = [&reader]() {
+            InventorySlot result;
+            if (!reader.readBool()) { return result; }
+            if (reader.readBool()) {
+                result.itemId = reader.readVarInt();
+            }
+            if (reader.readBool()) {
+                result.count = reader.readVarInt();
+            }
+            if (reader.readBool()) {
+                int32_t components = reader.readVarInt();
+                if (components < 0 || components > 1024) {
+                    throw std::runtime_error("invalid changed-slot component array");
+                }
+                for (int32_t index = 0; index < components; ++index) {
+                    (void)reader.readVarInt();
+                    (void)reader.readInt();
+                }
+            }
+            if (reader.readBool()) {
+                int32_t components = reader.readVarInt();
+                if (components < 0 || components > 1024) {
+                    throw std::runtime_error("invalid removed-slot component array");
+                }
+                for (int32_t index = 0; index < components; ++index) {
+                    (void)reader.readVarInt();
+                }
+            }
+            if (result.itemId == 0 || result.count == 0) { result = {}; }
+            return result;
+        };
+
+        int32_t changedCount = reader.readVarInt();
+        if (changedCount < 0 || changedCount > 128) {
+            throw std::runtime_error("invalid changed-slot count");
+        }
+        for (int32_t index = 0; index < changedCount; ++index) {
+            int16_t slot = reader.readShort();
+            InventorySlot updated = readHashedSlot();
+            if (slot >= 36 && slot <= 44) {
+                inventory_.hotbar[static_cast<size_t>(slot - 36)] = updated;
+                hotbarItemIds_[static_cast<size_t>(slot - 36)] = updated.itemId;
+            } else if (slot >= 9 && slot <= 35) {
+                inventory_.main[static_cast<size_t>(slot - 9)] = updated;
+            } else if (slot >= 5 && slot <= 8) {
+                inventory_.armor[static_cast<size_t>(slot - 5)] = updated;
+            } else if (slot == 45) {
+                inventory_.offhand = updated;
+                offhandItemId_ = updated.itemId;
+            }
+        }
+        (void)readHashedSlot(); // Carried item
+        profile_.inventory = inventory_;
+        savePlayerProfile();
         break;
     }
     case kPlayServerboundPlayerLoaded:
@@ -414,6 +510,13 @@ void ClientSession::handleMovement(double x, double y, double z, bool onGround) 
     positionY_ = y;
     positionZ_ = z;
     onGround_ = onGround;
+    profile_.position.x = x;
+    profile_.position.y = y;
+    profile_.position.z = z;
+    profile_.position.yaw = yaw_;
+    profile_.position.pitch = pitch_;
+    profile_.position.onGround = onGround;
+    profile_.position.saved = true;
     if (world_->javaWorld()) {
         int32_t chunkX = static_cast<int32_t>(std::floor(x / 16.0));
         int32_t chunkZ = static_cast<int32_t>(std::floor(z / 16.0));
@@ -494,11 +597,63 @@ void ClientSession::handleBlockPlacement(int hand, net::BlockPos const& target, 
     sendBlockUpdate(position, *blockState);
 }
 
+void ClientSession::savePlayerProfile() {
+    if (!hasPlayerUuid_) { return; }
+    profile_.inventory = inventory_;
+    profile_.position.x = positionX_;
+    profile_.position.y = positionY_;
+    profile_.position.z = positionZ_;
+    profile_.position.yaw = yaw_;
+    profile_.position.pitch = pitch_;
+    profile_.position.onGround = onGround_;
+    profile_.position.saved = true;
+    try {
+        world_->savePlayerProfile(playerUuid_, profile_);
+    } catch (std::exception const& error) {
+        util::log(util::LogLevel::Error,
+                  "cannot save player profile for " + playerName_ + ": " + error.what());
+    }
+}
+
+void ClientSession::sendContainerContent() {
+    ++inventoryStateId_;
+    if (inventoryStateId_ == std::numeric_limits<int32_t>::max()) { inventoryStateId_ = 0; }
+
+    ByteWriter body;
+    body.writeVarInt(0);
+    body.writeVarInt(inventoryStateId_);
+    body.writeVarInt(46);
+
+    std::array<InventorySlot, 46> slots{};
+    for (size_t index = 0; index < inventory_.main.size(); ++index) {
+        slots[9 + index] = inventory_.main[index];
+    }
+    for (size_t index = 0; index < inventory_.armor.size(); ++index) {
+        slots[5 + index] = inventory_.armor[index];
+    }
+    for (size_t index = 0; index < inventory_.hotbar.size(); ++index) {
+        slots[36 + index] = inventory_.hotbar[index];
+    }
+    slots[45] = inventory_.offhand;
+
+    for (auto const& slot : slots) {
+        body.writeVarInt(slot.count);
+        if (slot.count > 0) {
+            body.writeVarInt(slot.itemId);
+            body.writeVarInt(0);
+            body.writeVarInt(0);
+        }
+    }
+    body.writeVarInt(0); // Carried item: empty
+    connection_->send(kPlayClientboundSetContainerContent, body);
+}
+
 void ClientSession::scheduleKeepAlive() {
     auto self = shared_from_this();
     keepAliveTimer_.expires_after(std::chrono::seconds(10));
     keepAliveTimer_.async_wait([self](asio::error_code error) {
         if (error || self->connection_->state() != ProtocolState::Play) { return; }
+        self->savePlayerProfile();
 
         ByteWriter body;
         auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -509,6 +664,29 @@ void ClientSession::scheduleKeepAlive() {
 }
 
 void ClientSession::enterPlay() {
+    if (hasPlayerUuid_) {
+        try {
+            profile_ = world_->loadPlayerProfile(playerUuid_);
+            inventory_ = profile_.inventory;
+            for (size_t index = 0; index < hotbarItemIds_.size(); ++index) {
+                hotbarItemIds_[index] = inventory_.hotbar[index].itemId;
+            }
+            offhandItemId_ = inventory_.offhand.itemId;
+            selectedHotbarSlot_ = inventory_.selectedHotbarSlot;
+            if (profile_.position.saved) {
+                positionX_ = profile_.position.x;
+                positionY_ = profile_.position.y;
+                positionZ_ = profile_.position.z;
+                yaw_ = profile_.position.yaw;
+                pitch_ = profile_.position.pitch;
+                onGround_ = profile_.position.onGround;
+            }
+        } catch (std::exception const& error) {
+            util::log(util::LogLevel::Error,
+                      "cannot load inventory for " + playerName_ + ": " + error.what());
+            inventory_ = PlayerInventory{};
+        }
+    }
     world_->addPlayer(connection_);
     sendPlayLogin();
     sendPlayerAbilities();
@@ -554,27 +732,19 @@ void ClientSession::sendPlayerAbilities() {
 }
 
 void ClientSession::sendInitialInventory() {
-    hotbarItemIds_[0] = kStoneItemId;
-
-    ByteWriter slot;
-    slot.writeVarInt(0); // Player inventory window
-    slot.writeVarInt(0); // Initial state ID
-    slot.writeShort(kFirstHotbarSlot);
-    slot.writeVarInt(64); // Item count
-    slot.writeVarInt(kStoneItemId);
-    slot.writeVarInt(0); // Added components
-    slot.writeVarInt(0); // Removed components
-    connection_->send(kPlayClientboundSetContainerSlot, slot);
+    sendContainerContent();
 }
 
 void ClientSession::sendInitialSpawn() {
         if (auto* java = world_->javaWorld()) {
             auto const& level = java->level();
-            positionX_ = level.spawnX + 0.5;
-            positionY_ = level.spawnY;
-            positionZ_ = level.spawnZ + 0.5;
-            yaw_ = level.spawnYaw;
-            pitch_ = level.spawnPitch;
+            if (!profile_.position.saved) {
+                positionX_ = level.spawnX + 0.5;
+                positionY_ = level.spawnY;
+                positionZ_ = level.spawnZ + 0.5;
+                yaw_ = level.spawnYaw;
+                pitch_ = level.spawnPitch;
+            }
             ByteWriter event;
             event.writeUByte(13);
             event.writeFloat(0.0f);

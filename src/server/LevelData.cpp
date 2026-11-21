@@ -8,6 +8,7 @@
 #include <fstream>
 #include <memory>
 #include <stdexcept>
+#include <cstdint>
 
 namespace mcserver::server {
 namespace {
@@ -42,6 +43,35 @@ std::string readLevelNbt(std::filesystem::path const& path) {
             throw std::runtime_error("decompressed level.dat exceeds size limit");
         }
         result.append(buffer.data(), static_cast<size_t>(count));
+    }
+
+    uint64_t compressedSize = std::filesystem::file_size(path);
+    if (compressedSize < 18) {
+        throw std::runtime_error("truncated level.dat");
+    }
+    std::ifstream footerInput(path, std::ios::binary);
+    if (!footerInput) {
+        throw std::runtime_error("cannot verify level.dat");
+    }
+    footerInput.seekg(static_cast<std::streamoff>(compressedSize - 8));
+    std::array<unsigned char, 8> footer{};
+    if (!footerInput.read(reinterpret_cast<char*>(footer.data()), footer.size())) {
+        throw std::runtime_error("truncated level.dat");
+    }
+    uint32_t expectedCrc = static_cast<uint32_t>(footer[0]) |
+                            (static_cast<uint32_t>(footer[1]) << 8) |
+                            (static_cast<uint32_t>(footer[2]) << 16) |
+                            (static_cast<uint32_t>(footer[3]) << 24);
+    uint32_t expectedSize = static_cast<uint32_t>(footer[4]) |
+                            (static_cast<uint32_t>(footer[5]) << 8) |
+                            (static_cast<uint32_t>(footer[6]) << 16) |
+                            (static_cast<uint32_t>(footer[7]) << 24);
+    uLong actualCrc = crc32(0L, Z_NULL, 0);
+    actualCrc = crc32(actualCrc, reinterpret_cast<Bytef const*>(result.data()),
+                      static_cast<uInt>(result.size()));
+    if (static_cast<uint32_t>(actualCrc) != expectedCrc ||
+        expectedSize != static_cast<uint32_t>(result.size())) {
+        throw std::runtime_error("truncated or corrupted level.dat");
     }
     return result;
 }

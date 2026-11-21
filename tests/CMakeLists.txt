@@ -11,7 +11,12 @@ add_executable(mcserver_tests
     server_WorldStorage_test.cpp
     server_WorldLock_test.cpp
     server_World_test.cpp
+    server_PlayerInventoryStorage_test.cpp
 )
+
+if(MSVC)
+    target_link_options(mcserver_tests PRIVATE /STACK:8388608)
+endif()
 
 target_link_libraries(mcserver_tests PRIVATE
     mcserver_core

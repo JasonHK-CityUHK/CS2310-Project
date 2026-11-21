@@ -70,5 +70,6 @@ Testing/
 
 # Local worlds and macOS metadata
 world/
+New World/
 .DS_Store
 __pycache__/

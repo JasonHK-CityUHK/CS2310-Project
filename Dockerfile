@@ -15,7 +15,8 @@ WORKDIR /src
 COPY . .
 
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build build --target mcserver --parallel 2
+    && cmake --build build --target mcserver mcserver_tests --parallel 2 \
+    && ctest --test-dir build --output-on-failure
 
 FROM ubuntu:24.04
 

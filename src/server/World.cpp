@@ -18,7 +18,30 @@ namespace mcserver::server {
 World::World() { loadBlockItemMappings(); }
 
 World::World(std::filesystem::path const& directory) : javaWorld_(std::make_shared<JavaWorld>(directory)) {
+    playerInventoryStorage_ = std::make_unique<PlayerInventoryStorage>(directory);
     loadBlockItemMappings();
+}
+
+PlayerInventory World::loadPlayerInventory(std::array<std::byte, 16> const& uuid) const {
+    PlayerInventory inventory;
+    if (playerInventoryStorage_) { (void)playerInventoryStorage_->load(uuid, inventory); }
+    return inventory;
+}
+
+void World::savePlayerInventory(std::array<std::byte, 16> const& uuid,
+                                PlayerInventory const& inventory) const {
+    if (playerInventoryStorage_) { playerInventoryStorage_->save(uuid, inventory); }
+}
+
+PlayerProfile World::loadPlayerProfile(std::array<std::byte, 16> const& uuid) const {
+    PlayerProfile profile;
+    if (playerInventoryStorage_) { (void)playerInventoryStorage_->load(uuid, profile); }
+    return profile;
+}
+
+void World::savePlayerProfile(std::array<std::byte, 16> const& uuid,
+                              PlayerProfile const& profile) const {
+    if (playerInventoryStorage_) { playerInventoryStorage_->save(uuid, profile); }
 }
 
 int32_t World::blockStateAt(net::BlockPos const& position) const {
