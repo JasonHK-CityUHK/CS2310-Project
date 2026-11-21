@@ -3,7 +3,7 @@
 A minimal C++23 Minecraft Java Edition server for protocol experimentation. The
 server currently supports offline login, Configuration registry/tag exchange,
 loading existing Java 26.3 overworld chunks, basic Play movement packets,
-restricted block edits, and keep-alive traffic.
+restricted block edits, persistent player profiles, and keep-alive traffic.
 
 ## Requirements
 
@@ -11,6 +11,10 @@ restricted block edits, and keep-alive traffic.
 - C and C++23 compilers (GCC 13+ or Clang with C++23 support)
 - Git, for CMake FetchContent dependencies
 - Internet access during the first configure/build
+- zlib development support
+
+Docker mode has no native CMake, compiler, vcpkg, or zlib requirement on the
+host. Docker installs and runs those tools inside the Linux build image.
 
 The build downloads Asio, GlacieTeam/BinaryStream, GlacieTeam/NBT, LZ4,
 nlohmann/json, Catch2, and the official Minecraft 26.3 server bundle. The protocol registry
@@ -111,19 +115,23 @@ Docker Desktop is an alternative to installing the C++ toolchain locally.
 The Docker commands below work in Command Prompt or PowerShell. You only need
 Docker Desktop with its Linux container engine enabled; you do not need to
 install CMake, vcpkg, a C++ compiler, Git, or zlib on Windows. From the
-project directory, run this the first time:
+project directory, run this after copying an existing world:
 
 ```bat
 docker compose build
 docker compose create
-docker compose cp ./Sample/. mcserver:/opt/mcserver/world/
-docker compose start --attach
+docker compose cp "X:\path\to\Your World\." mcserver:/opt/mcserver/world/
+docker compose up -d
 ```
 
 `docker compose build` installs the compiler, CMake, Git, and zlib inside the
 image, downloads the C++ dependencies and Minecraft 26.3 data, and builds the
-Linux server. Replace `./Sample` with an existing extracted 26.3 world directory.
-The copy step populates the persistent volume; no world is generated. Compose maps the
+Linux server and runs the CMake test suite. Replace the example path with the
+complete extracted Java 26.3 world directory. The world directory must contain
+`level.dat` and `dimensions`. The copy step populates the persistent volume.
+There is no world generator or fallback template.
+
+Compose maps the
 host's port `25565` to the container's port `25565`, so connect Minecraft Java
 Edition **26.3** to:
 
@@ -202,20 +210,14 @@ The server reads `server.properties` in its working directory. It supports
 `server-ip` (empty means all IPv4 interfaces), `server-port` (default 25565),
 `motd` (default `CS2310 minimal MC server`), and `level-name` (default `world`).
 Other settings are ignored. `level-name` identifies an existing extracted world
-directory relative to the working directory. The server does not create worlds
-or generate missing chunks. For example, extract the supplied archive and set:
+directory relative to the working directory. Native and Docker startup do not
+create worlds or generate missing chunks. Extract an existing world and set:
 
 ```properties
 server-ip=127.0.0.1
 server-port=25566
 motd=My Minecraft server
 level-name=Sample
-```
-
-Start the server with:
-
-```sh
-./build/src/mcserver
 ```
 
 Logging defaults to `info`. Set `MCSERVER_LOG_LEVEL` to `error`, `warning`,
@@ -242,7 +244,9 @@ Implemented:
   and keep-alive packet handling
 - Basic movement checks that reject non-finite coordinates and correct
   per-packet jumps over 10 blocks; collision validation is still pending
-- Creative-mode player abilities and an initial inventory
+- Creative-mode player abilities and a persistent player inventory
+- UUID-keyed player profiles with hotbar, main inventory, armor, offhand,
+  selected slot, position, rotation, and on-ground state
 - Restricted enclosed-stone breaking and replacement with shared updates
 - Windows build/run scripts and Docker configuration
 - Java level metadata and Anvil region loading and saving
@@ -293,3 +297,15 @@ A real Minecraft client should also be used before classroom demonstration.
 
 Docker Compose mounts a named volume at `/opt/mcserver/world`. Normal
 `docker compose down` retains the save; `docker compose down -v` deletes it.
+Player inventories are saved as JSON files under
+`<level-name>/playerdata/<offline-UUID>.json`. The selected hotbar slot,
+main inventory, armor, hotbar, and offhand are restored after reconnecting.
+The player's position, yaw, pitch, and on-ground state are saved in the same
+profile every ten seconds, when the player disconnects, and during normal
+shutdown.
+
+The JSON player profile is an implementation-specific persistence format; it
+is not a vanilla Java `playerdata/<uuid>.dat` file. A profile is written only
+for players that have entered Play. Corrupt or incompatible profiles are
+reported during join and are replaced with the default profile by the session;
+the server does not silently modify a world region as a fallback.

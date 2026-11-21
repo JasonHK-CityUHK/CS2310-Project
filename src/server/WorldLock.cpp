@@ -20,16 +20,31 @@ WorldLock::WorldLock(std::filesystem::path const& worldDirectory) {
     HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                 nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) { throw std::runtime_error("cannot open world session lock"); }
-    OVERLAPPED overlap{};
-    if (!LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, MAXDWORD, 0x7fffffff, &overlap)) {
-        CloseHandle(handle);
-        throw std::runtime_error("world is locked by another process");
-    }
     DWORD written = 0;
     if (SetFilePointer(handle, 0, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
-        !WriteFile(handle, marker, 3, &written, nullptr) || written != 3 || !SetEndOfFile(handle)) {
+        !SetEndOfFile(handle) ||
+        !WriteFile(handle, marker, 3, &written, nullptr) ||
+        written != 3 ||
+        !SetEndOfFile(handle)) {
         CloseHandle(handle);
         throw std::runtime_error("cannot write world session lock");
+    }
+    if (!FlushFileBuffers(handle)) {
+        CloseHandle(handle);
+        throw std::runtime_error("cannot flush world session lock");
+    }
+    CloseHandle(handle);
+
+    auto lockPath = directory_ / "session.lock.lock";
+    handle = CreateFileW(lockPath.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("cannot open world session lock");
+    }
+    OVERLAPPED overlap{};
+    if (!LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &overlap)) {
+        CloseHandle(handle);
+        throw std::runtime_error("world is locked by another process");
     }
     handle_ = handle;
 #else

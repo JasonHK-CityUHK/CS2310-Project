@@ -19,6 +19,8 @@ add_library(mcserver_core
     server/WorldStorage.cpp
     server/WorldLock.cpp
     server/World.cpp
+    server/PlayerInventory.cpp
+    server/PlayerInventoryStorage.cpp
 )
 add_dependencies(mcserver_core mcserver_data)
 
@@ -50,3 +52,7 @@ endif()
 
 add_executable(mcserver main.cpp)
 target_link_libraries(mcserver PRIVATE mcserver_core)
+
+if(MSVC)
+    target_link_options(mcserver PRIVATE /STACK:8388608)
+endif()

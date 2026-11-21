@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mcserver/net/Connection.hpp"
+#include "mcserver/server/PlayerInventory.hpp"
 
 #include <array>
 #include <cstdint>
@@ -49,6 +50,8 @@ private:
     void sendBlockUpdate(net::BlockPos const& position, int32_t blockState);
     void handleBlockBreak(int x, int y, int z);
     void scheduleKeepAlive();
+    void savePlayerProfile();
+    void sendContainerContent();
 
     std::shared_ptr<net::Connection> connection_;
     std::shared_ptr<World> world_;
@@ -56,6 +59,10 @@ private:
     std::string motd_;
     int32_t viewDistance_ = 10;
     std::string playerName_;
+    std::array<std::byte, 16> playerUuid_{};
+    bool hasPlayerUuid_ = false;
+    PlayerInventory inventory_;
+    PlayerProfile profile_;
     double positionX_ = 0.5;
     double positionY_ = 1.0;
     double positionZ_ = 0.5;
@@ -67,6 +74,7 @@ private:
     int16_t selectedHotbarSlot_ = 0;
     int32_t nextTeleportId_ = 0;
     int32_t pendingTeleportId_ = -1;
+    int32_t inventoryStateId_ = 0;
     bool awaitingTeleportConfirmation_ = false;
     int32_t centerChunkX_ = std::numeric_limits<int32_t>::min();
     int32_t centerChunkZ_ = std::numeric_limits<int32_t>::min();
