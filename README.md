@@ -247,7 +247,8 @@ Implemented:
 - Creative-mode player abilities and a persistent player inventory
 - UUID-keyed player profiles with hotbar, main inventory, armor, offhand,
   selected slot, position, rotation, and on-ground state
-- Restricted enclosed-stone breaking and replacement with shared updates
+- Restricted stone block breaking and stone replacement in supported enclosed
+  Java-world positions, with updates shared by connected players
 - Windows build/run scripts and Docker configuration
 - Java level metadata and Anvil region loading and saving
 - Automatic saves every five seconds and a final save on normal shutdown
@@ -260,6 +261,7 @@ Not yet implemented:
 - Entity movement broadcasting
 - New-world or chunk generation, other dimensions, and entity persistence
 - General block editing and block entity simulation
+- General block breaking and placement outside the restricted stone-edit rules
 
 ## World Persistence
 
