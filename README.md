@@ -247,8 +247,8 @@ Implemented:
 - Creative-mode player abilities and a persistent player inventory
 - UUID-keyed player profiles with hotbar, main inventory, armor, offhand,
   selected slot, position, rotation, and on-ground state
-- Restricted stone block breaking and stone replacement in supported enclosed
-  Java-world positions, with updates shared by connected players
+- Vanilla block placement into air and breaking of supported blocks in
+  Java-world chunks, with updates shared by connected players
 - Windows build/run scripts and Docker configuration
 - Java level metadata and Anvil region loading and saving
 - Automatic saves every five seconds and a final save on normal shutdown
@@ -260,8 +260,7 @@ Not yet implemented:
 - Collision detection and comprehensive movement validation
 - Entity movement broadcasting
 - New-world or chunk generation, other dimensions, and entity persistence
-- General block editing and block entity simulation
-- General block breaking and placement outside the restricted stone-edit rules
+- Block entity simulation
 
 ## World Persistence
 
@@ -273,11 +272,11 @@ writes are not supported. Other dimensions and unsupported world files are not c
 Back up a world before using it: opening a saved world in the vanilla client
 after edits has not yet been verified.
 
-For safety, edits are currently restricted to breaking stone or replacing it
-with stone when all 26 neighboring blocks are stone and the position is inside
-the chunk boundary. Edits are rejected in chunks with block entities, pending
-block/fluid ticks, point-of-interest data, or external chunk storage. Other
-blocks cannot yet be placed or broken.
+Block items can be placed into air, and non-air blocks can be broken in
+supported loaded chunks. Edits are rejected at chunk boundaries and in chunks
+with block entities, pending block/fluid ticks, point-of-interest data, or
+external chunk storage. Block behavior and block entity simulation are not
+implemented.
 
 Changed worlds autosave every five seconds and once more on Ctrl+C (SIGINT) or
 SIGTERM. A forced kill may lose changes since the last successful save. Region

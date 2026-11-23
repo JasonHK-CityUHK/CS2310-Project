@@ -12,7 +12,7 @@ The server currently supports:
 - Existing Java 26.3 overworld chunks streamed around players
 - Saved biome and lighting data in chunk packets
 - Basic player movement, rotation, teleport confirmation, player-loaded, and keep-alive packets
-- Restricted enclosed-stone edits with updates broadcast to other players
+- Vanilla block placement into air and supported block breaking with updates broadcast to other players
 
 Java 26.3 Anvil persistence is implemented for supported edits.
 World generation, collision validation, entity broadcasting, and general block behavior are not implemented yet.

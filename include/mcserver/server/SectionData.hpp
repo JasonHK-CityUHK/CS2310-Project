@@ -20,6 +20,7 @@ public:
     BlockStateRegistry();
     [[nodiscard]] int32_t resolve(nbt::CompoundTagVariant const& entry) const;
     [[nodiscard]] nbt::CompoundTag paletteEntry(int32_t state) const;
+    [[nodiscard]] bool hasState(int32_t state) const { return entries_.contains(state); }
     [[nodiscard]] bool isAir(int32_t state) const { return airStates_.contains(state); }
     [[nodiscard]] bool hasFluid(int32_t state) const { return fluidStates_.contains(state); }
 

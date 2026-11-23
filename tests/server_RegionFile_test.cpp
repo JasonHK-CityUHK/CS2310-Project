@@ -274,7 +274,7 @@ TEST_CASE("Live world abstraction reads Java chunks", "[java-world]") {
     }
 }
 
-TEST_CASE("Java-backed world saves supported enclosed stone edits", "[java-world]") {
+TEST_CASE("Java-backed world places any registered block into air and persists it", "[java-world]") {
     RegionFixture fixture;
     fixture.writeLevel();
     fixture.write("r.0.0.mca", regionData(0, 0));
@@ -284,7 +284,9 @@ TEST_CASE("Java-backed world saves supported enclosed stone edits", "[java-world
         REQUIRE(chunk);
         nbt::CompoundTag states{{"palette", nbt::ListTag({"minecraft:stone"})}};
         nbt::CompoundTag section{{"Y", static_cast<int8_t>(0)}, {"block_states", states}};
-        (*chunk)["sections"] = nbt::ListTag({section});
+        nbt::CompoundTag airStates{{"palette", nbt::ListTag({"minecraft:air"})}};
+        nbt::CompoundTag airSection{{"Y", static_cast<int8_t>(1)}, {"block_states", airStates}};
+        (*chunk)["sections"] = nbt::ListTag({section, airSection});
         mcserver::server::saveRegionChunk(lock, fixture.directory, 0, 0, *chunk);
     }
     {
@@ -310,10 +312,27 @@ TEST_CASE("Java-backed world saves supported enclosed stone edits", "[java-world
         mcserver::server::World world(fixture.directory);
         REQUIRE(world.blockStateAt({8, 8, 8}) == 0);
         REQUIRE(world.tryPlaceBlock({8, 8, 8}, 1));
+        mcserver::server::BlockStateRegistry registry;
+        nbt::CompoundTagVariant dirtEntry = nbt::CompoundTag{{"id", "minecraft:dirt"}};
+        auto dirtState = registry.resolve(dirtEntry);
+        REQUIRE(world.tryPlaceBlock({8, 16, 8}, dirtState));
+        REQUIRE(world.blockStateAt({8, 16, 8}) == dirtState);
+        REQUIRE_FALSE(world.tryPlaceBlock({8, 16, 8}, 1));
         world.saveJavaWorld();
     }
-    mcserver::server::World restored(fixture.directory);
-    REQUIRE(restored.blockStateAt({8, 8, 8}) == 1);
+    {
+        mcserver::server::World restored(fixture.directory);
+        REQUIRE(restored.blockStateAt({8, 8, 8}) == 1);
+        mcserver::server::BlockStateRegistry registry;
+        nbt::CompoundTagVariant dirtEntry = nbt::CompoundTag{{"id", "minecraft:dirt"}};
+        auto dirtState = registry.resolve(dirtEntry);
+        REQUIRE(restored.blockStateAt({8, 16, 8}) == dirtState);
+        REQUIRE(restored.setBlockToAir({8, 16, 8}));
+        REQUIRE(restored.blockStateAt({8, 16, 8}) == 0);
+        restored.saveJavaWorld();
+    }
+    mcserver::server::World afterBreak(fixture.directory);
+    REQUIRE(afterBreak.blockStateAt({8, 16, 8}) == 0);
 }
 
 TEST_CASE("Java world rejects unsupported or missing spawn chunks", "[java-world]") {

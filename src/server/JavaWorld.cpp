@@ -116,14 +116,20 @@ std::optional<int32_t> JavaWorld::blockStateAt(net::BlockPos const& position) {
 }
 
 bool JavaWorld::setBlock(net::BlockPos const& position, int32_t state) {
-    if ((state != 0 && state != 1) || !World::contains(position) || position.y <= -64 || position.y >= 319) { return false; }
+    if ((state != 0 && (!registry_.hasState(state) || registry_.isAir(state))) ||
+        !World::contains(position) || position.y <= -64 || position.y >= 319) {
+        return false;
+    }
     int32_t chunkX = chunkCoordinate(position.x);
     int32_t chunkZ = chunkCoordinate(position.z);
     int32_t localX = position.x - chunkX * 16;
     int32_t localZ = position.z - chunkZ * 16;
     if (localX == 0 || localX == 15 || localZ == 0 || localZ == 15) { return false; }
     auto current = blockStateAt(position);
-    if (!current || (*current != 0 && *current != 1) || *current == state) { return false; }
+    if (!current || *current == state ||
+        (state == 0 ? registry_.isAir(*current) : !registry_.isAir(*current))) {
+        return false;
+    }
     auto key = chunkKey(chunkX, chunkZ);
     auto found = chunks_.find(key);
     if (found == chunks_.end()) { return false; }
@@ -134,14 +140,6 @@ bool JavaWorld::setBlock(net::BlockPos const& position, int32_t state) {
         if (chunk.data.contains(name) &&
             (!chunk.data.contains(name, nbt::Tag::Type::List) || !chunk.data.at(name).as<nbt::ListTag>().empty())) {
             return false;
-        }
-    }
-    for (int deltaY = -1; deltaY <= 1; ++deltaY) {
-        for (int deltaZ = -1; deltaZ <= 1; ++deltaZ) {
-            for (int deltaX = -1; deltaX <= 1; ++deltaX) {
-                if (deltaX == 0 && deltaY == 0 && deltaZ == 0) { continue; }
-                if (blockStateAt({position.x + deltaX, position.y + deltaY, position.z + deltaZ}) != 1) { return false; }
-            }
         }
     }
     size_t sectionIndex = static_cast<size_t>((position.y + 64) / 16);
