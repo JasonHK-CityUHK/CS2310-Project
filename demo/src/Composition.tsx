@@ -1,9 +1,10 @@
 import React from "react";
 import { Audio, Video } from "@remotion/media";
+import { fade as fadePresentation } from "@remotion/transitions/fade";
+import { linearTiming, TransitionSeries } from "@remotion/transitions";
 import {
   Composition,
   Easing,
-  Sequence,
   staticFile,
   Track,
   useCurrentFrame,
@@ -154,6 +155,7 @@ const SystemOverview = () => {
     { title: "Block interaction", detail: "Place and break supported vanilla blocks" },
     { title: "Creative inventory", detail: "Creative-mode item selection and block placement" },
     { title: "Anvil persistence", detail: "Java 26.3 world edits saved transactionally" },
+    { title: "server.properties", detail: "Configure IP, port, MOTD, view distance, and world name" },
   ];
   return (
     <div style={{ position: "absolute", inset: 0, padding: "95px 120px" }}>
@@ -169,7 +171,7 @@ const SystemOverview = () => {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: "repeat(4, 1fr)",
             gap: 18,
             marginTop: 48,
           }}
@@ -192,6 +194,135 @@ const SystemOverview = () => {
               <div style={{ color: colors.muted, fontFamily: "monospace", fontSize: 16, lineHeight: 1.4, marginTop: 13 }}>
                 {feature.detail}
               </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <ScanLines />
+    </div>
+  );
+};
+
+const Motivation = () => {
+  const frame = useCurrentFrame();
+  return (
+    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", padding: "0 120px" }}>
+      <GridBackground />
+      <div style={{ position: "relative", width: "100%", opacity: fade(frame, 0, 20) }}>
+        <Label>Motivation</Label>
+        <div style={{ color: colors.white, fontFamily: "Arial, sans-serif", fontSize: 72, fontWeight: 900, marginTop: 24 }}>
+          Make the protocol visible.
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 40,
+            marginTop: 48,
+          }}
+        >
+          <div style={{ borderLeft: `4px solid ${colors.cyan}`, padding: "8px 0 8px 28px" }}>
+            <div style={{ color: colors.cyan, fontFamily: "monospace", fontSize: 20, letterSpacing: 3 }}>THE CHALLENGE</div>
+            <div style={{ color: colors.white, fontFamily: "Arial, sans-serif", fontSize: 30, lineHeight: 1.35, marginTop: 18 }}>
+              The server, network protocol, and world format are tightly coupled.
+            </div>
+          </div>
+          <div style={{ borderLeft: `4px solid ${colors.lime}`, padding: "8px 0 8px 28px" }}>
+            <div style={{ color: colors.lime, fontFamily: "monospace", fontSize: 20, letterSpacing: 3 }}>THE PROJECT</div>
+            <div style={{ color: colors.white, fontFamily: "Arial, sans-serif", fontSize: 30, lineHeight: 1.35, marginTop: 18 }}>
+              A readable C++23 implementation for studying a real Java 26.3 connection.
+            </div>
+          </div>
+        </div>
+        <div style={{ color: colors.muted, fontFamily: "monospace", fontSize: 20, marginTop: 44 }}>
+          HANDSHAKE → STATUS → LOGIN → CONFIGURATION → PLAY
+        </div>
+      </div>
+      <ScanLines />
+    </div>
+  );
+};
+
+const Innovation = () => {
+  const frame = useCurrentFrame();
+  const items = [
+    ["01", "Protocol 777", "Native C++23 protocol and state-machine implementation"],
+    ["02", "Anvil integration", "Existing Java 26.3 worlds with protected, transactional edits"],
+    ["03", "Ack-paced chunks", "Nearby chunks first, then acknowledged view-distance streaming"],
+    ["04", "Persistent profiles", "Inventory, position, rotation, and hotbar state across restarts"],
+  ];
+  return (
+    <div style={{ position: "absolute", inset: 0, padding: "92px 120px" }}>
+      <GridBackground />
+      <div style={{ position: "relative", opacity: fade(frame, 0, 18) }}>
+        <Label color={colors.lime}>Innovation</Label>
+        <div style={{ color: colors.white, fontFamily: "Arial, sans-serif", fontSize: 66, fontWeight: 900, marginTop: 20 }}>
+          Small server. Deep integration.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22, marginTop: 44 }}>
+          {items.map(([number, title, detail], index) => (
+            <div
+              key={title}
+              style={{
+                height: 170,
+                boxSizing: "border-box",
+                backgroundColor: colors.panel,
+                border: `1px solid ${index % 2 === 0 ? colors.cyan : colors.lime}`,
+                display: "flex",
+                alignItems: "center",
+                padding: "26px 30px",
+                opacity: fade(frame, index * 8, index * 8 + 16),
+              }}
+            >
+              <div style={{ color: index % 2 === 0 ? colors.cyan : colors.lime, fontFamily: "monospace", fontSize: 46, fontWeight: 800, width: 105 }}>
+                {number}
+              </div>
+              <div>
+                <div style={{ color: colors.white, fontFamily: "Arial, sans-serif", fontSize: 27, fontWeight: 800 }}>{title}</div>
+                <div style={{ color: colors.muted, fontFamily: "Arial, sans-serif", fontSize: 20, lineHeight: 1.35, marginTop: 10 }}>{detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <ScanLines />
+    </div>
+  );
+};
+
+const UseCases = () => {
+  const frame = useCurrentFrame();
+  const cases = [
+    ["PROTOCOL LAB", "Test packets and state transitions with a real Java 26.3 client"],
+    ["CLASSROOM", "Demonstrate registries, chunk delivery, and live block updates"],
+    ["WORLD TESTING", "Load an existing world and verify edits, saves, and reconnect recovery"],
+    ["FAILURE TESTS", "Exercise corrupt worlds, write failures, retries, and missing chunks"],
+  ];
+  return (
+    <div style={{ position: "absolute", inset: 0, padding: "92px 120px" }}>
+      <GridBackground />
+      <div style={{ position: "relative", opacity: fade(frame, 0, 18) }}>
+        <Label>Example use cases</Label>
+        <div style={{ color: colors.white, fontFamily: "Arial, sans-serif", fontSize: 66, fontWeight: 900, marginTop: 20 }}>
+          Built for experiments.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 44 }}>
+          {cases.map(([title, detail], index) => (
+            <div
+              key={title}
+              style={{
+                minHeight: 145,
+                boxSizing: "border-box",
+                padding: "22px 26px",
+                backgroundColor: colors.panel,
+                borderTop: `3px solid ${index % 2 === 0 ? colors.cyan : colors.orange}`,
+                opacity: fade(frame, index * 8, index * 8 + 16),
+              }}
+            >
+              <div style={{ color: index % 2 === 0 ? colors.cyan : colors.orange, fontFamily: "monospace", fontSize: 20, fontWeight: 800, letterSpacing: 2 }}>
+                {title}
+              </div>
+              <div style={{ color: colors.muted, fontFamily: "Arial, sans-serif", fontSize: 21, lineHeight: 1.35, marginTop: 13 }}>{detail}</div>
             </div>
           ))}
         </div>
@@ -357,34 +488,52 @@ export const MyComponent: React.FC<Props> = () => {
         />
       </Track>
       <Track name="Main story">
-        <Sequence name="Opening title" durationInFrames={6 * fps}>
-          <Intro />
-        </Sequence>
-        <Sequence name="System overview" from={6 * fps} durationInFrames={10 * fps}>
-          <SystemOverview />
-        </Sequence>
-        <Sequence name="Joining and flying full clip" from={16 * fps} durationInFrames={20 * fps}>
-          <ClipSlot
-            title="Join + fly through the world"
-            detail="Full recording: handshake, login, configuration, and movement"
-            icon="01"
-            source="2026-11-24 18-38-59.mp4"
-            sourceDurationLabel="00:20"
-          />
-        </Sequence>
-        <Sequence name="Block placing and destroying trimmed clip" from={36 * fps} durationInFrames={460}>
-          <ClipSlot
-            title="Creative inventory + blocks"
-            detail="Full recording: select items, place blocks, break blocks, and sync updates"
-            accent={colors.orange}
-            icon="03"
-            source="2026-11-24 18-58-46.mp4"
-            sourceDurationLabel="00:15"
-          />
-        </Sequence>
-        <Sequence name="Closing title" from={36 * fps + 460} durationInFrames={1800 - (36 * fps + 460)}>
-          <Closing />
-        </Sequence>
+        <TransitionSeries>
+          <TransitionSeries.Sequence name="Opening title" durationInFrames={5 * fps}>
+            <Intro />
+          </TransitionSeries.Sequence>
+          <TransitionSeries.Transition presentation={fadePresentation()} timing={linearTiming({ durationInFrames: 18 })} />
+          <TransitionSeries.Sequence name="Motivation" durationInFrames={6 * fps}>
+            <Motivation />
+          </TransitionSeries.Sequence>
+          <TransitionSeries.Transition presentation={fadePresentation()} timing={linearTiming({ durationInFrames: 18 })} />
+          <TransitionSeries.Sequence name="Innovation" durationInFrames={5 * fps}>
+            <Innovation />
+          </TransitionSeries.Sequence>
+          <TransitionSeries.Transition presentation={fadePresentation()} timing={linearTiming({ durationInFrames: 18 })} />
+          <TransitionSeries.Sequence name="Example use cases" durationInFrames={156}>
+            <UseCases />
+          </TransitionSeries.Sequence>
+          <TransitionSeries.Transition presentation={fadePresentation()} timing={linearTiming({ durationInFrames: 18 })} />
+          <TransitionSeries.Sequence name="System overview" durationInFrames={7 * fps}>
+            <SystemOverview />
+          </TransitionSeries.Sequence>
+          <TransitionSeries.Transition presentation={fadePresentation()} timing={linearTiming({ durationInFrames: 18 })} />
+          <TransitionSeries.Sequence name="Joining and flying full clip" durationInFrames={16 * fps}>
+            <ClipSlot
+              title="Join + fly through the world"
+              detail="Full recording: handshake, login, configuration, and movement"
+              icon="01"
+              source="2026-11-24 18-38-59.mp4"
+              sourceDurationLabel="00:20"
+            />
+          </TransitionSeries.Sequence>
+          <TransitionSeries.Transition presentation={fadePresentation()} timing={linearTiming({ durationInFrames: 18 })} />
+          <TransitionSeries.Sequence name="Block placing and destroying clip" durationInFrames={15 * fps}>
+            <ClipSlot
+              title="Creative inventory + blocks"
+              detail="Full recording: select items, place blocks, break blocks, and sync updates"
+              accent={colors.orange}
+              icon="03"
+              source="2026-11-24 18-58-46.mp4"
+              sourceDurationLabel="00:15"
+            />
+          </TransitionSeries.Sequence>
+          <TransitionSeries.Transition presentation={fadePresentation()} timing={linearTiming({ durationInFrames: 18 })} />
+          <TransitionSeries.Sequence name="Closing title" durationInFrames={5 * fps}>
+            <Closing />
+          </TransitionSeries.Sequence>
+        </TransitionSeries>
       </Track>
     </div>
   );

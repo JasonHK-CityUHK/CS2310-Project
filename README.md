@@ -5,6 +5,53 @@ server currently supports offline login, Configuration registry/tag exchange,
 loading existing Java 26.3 overworld chunks, basic Play movement packets,
 restricted block edits, persistent player profiles, and keep-alive traffic.
 
+## Motivation
+
+Understanding and extending the Minecraft Java network protocol is difficult
+because the server, protocol, and world formats are tightly coupled. This
+project provides a small, readable C++23 implementation that exposes that
+boundary: contributors can follow a client connection through Handshake,
+Status, Login, Configuration, and Play while inspecting packet handling,
+registry data, chunk serialization, and saved-world reads in one repository.
+
+The implementation is intended for protocol study and controlled experiments,
+not as a replacement for the vanilla server. It deliberately supports existing
+Java 26.3 worlds and a focused subset of server behavior instead of attempting
+to reproduce a complete game server.
+
+## Innovation
+
+- **Protocol 777 in native C++:** the server implements the Java 26.3
+  handshake and state transitions with C++23, pinned dependencies, and
+  runtime-generated Minecraft reports and tags.
+- **Verified Anvil integration:** existing Java 26.3 region files are loaded
+  and supported block edits are serialized back to Anvil, while unsupported
+  chunk data is protected from accidental modification.
+- **Ack-paced chunk streaming:** nearby chunks are sent first and streamed in
+  acknowledged batches before the remaining configured view distance.
+- **Persistent player state:** inventories, hotbar selection, armor, position,
+  rotation, and on-ground state are retained across reconnects and restarts.
+- **Portable development environments:** native Windows scripts and Docker
+  Compose build and run workflows make the project usable without rebuilding
+  the full Minecraft ecosystem on the host.
+
+## Example Use Cases
+
+- **Protocol experiments:** add or inspect packets in a focused Play,
+  Configuration, or Login implementation and validate them with a real
+  Minecraft 26.3 client.
+- **Classroom demonstrations:** demonstrate client/server state transitions,
+  registry and tag exchange, chunk delivery, and live block updates with a
+  server that fits in a small C++ codebase.
+- **World integration testing:** copy a Java 26.3 world into the server and
+  test chunk loading, profile restoration, mining, placement, timed autosaves,
+  and restart recovery without generating a new world.
+- **Cross-platform tooling:** use Docker or Windows PowerShell scripts to build
+  and start a repeatable test server on a development machine.
+- **Failure testing:** use temporary worlds and the included smoke test to
+  exercise corrupt saves, write failures, save retries, shutdown behavior,
+  and missing-chunk handling.
+
 ## Requirements
 
 - CMake 3.24 or newer
