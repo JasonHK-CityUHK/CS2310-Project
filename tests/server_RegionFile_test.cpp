@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <utility>
 
 namespace {
 
@@ -321,7 +322,9 @@ TEST_CASE("Java-backed world places any registered block into air and persists i
             REQUIRE(reader.readUByte() == 0);
             REQUIRE(reader.readVarInt() == 41);
         }
-        REQUIRE_FALSE(world.setBlockToAir({0, 8, 8}));
+        REQUIRE(world.setBlockToAir({0, 8, 8}));
+        world.saveJavaWorld();
+        REQUIRE_FALSE(world.dirty());
         auto poiDirectory = fixture.directory / "dimensions/minecraft/overworld/poi";
         std::filesystem::create_directories(poiDirectory);
         {
@@ -362,6 +365,32 @@ TEST_CASE("Java-backed world places any registered block into air and persists i
     }
     mcserver::server::World afterBreak(fixture.directory);
     REQUIRE(afterBreak.blockStateAt({8, 16, 8}) == 0);
+}
+
+TEST_CASE("Java-backed world places blocks on negative chunk borders and persists them", "[java-world]") {
+    for (auto [z, chunkZ] : {std::pair{-65, -5}, std::pair{-64, -4}}) {
+        RegionFixture fixture;
+        fixture.writeLevel();
+        fixture.write("r.0.0.mca", regionData(0, 0));
+        fixture.write("r.-1.-1.mca", regionData(-1, chunkZ));
+        {
+            mcserver::server::WorldLock lock(fixture.directory);
+            auto chunk = mcserver::server::loadRegionChunk(fixture.directory, -1, chunkZ);
+            REQUIRE(chunk);
+            nbt::CompoundTag airStates{{"palette", nbt::ListTag({"minecraft:air"})}};
+            nbt::CompoundTag section{{"Y", static_cast<int8_t>(4)}, {"block_states", airStates}};
+            (*chunk)["sections"] = nbt::ListTag({section});
+            mcserver::server::saveRegionChunk(lock, fixture.directory, -1, chunkZ, *chunk);
+        }
+        {
+            mcserver::server::World world(fixture.directory);
+            REQUIRE(world.tryPlaceBlock({-4, 64, z}, 1));
+            REQUIRE(world.blockStateAt({-4, 64, z}) == 1);
+            world.saveJavaWorld();
+        }
+        mcserver::server::World restored(fixture.directory);
+        REQUIRE(restored.blockStateAt({-4, 64, z}) == 1);
+    }
 }
 
 TEST_CASE("Java world rejects unsupported or missing spawn chunks", "[java-world]") {

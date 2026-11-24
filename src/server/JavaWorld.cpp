@@ -124,7 +124,6 @@ bool JavaWorld::setBlock(net::BlockPos const& position, int32_t state) {
     int32_t chunkZ = chunkCoordinate(position.z);
     int32_t localX = position.x - chunkX * 16;
     int32_t localZ = position.z - chunkZ * 16;
-    if (localX == 0 || localX == 15 || localZ == 0 || localZ == 15) { return false; }
     auto current = blockStateAt(position);
     if (!current || *current == state ||
         (state == 0 ? registry_.isAir(*current) : !registry_.isAir(*current))) {

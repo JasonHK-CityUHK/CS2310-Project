@@ -264,15 +264,16 @@ def run(executable):
             assert_status(server)
             assert_incomplete_login_does_not_save_profile(server)
             assert_chunk_streaming(server)
-            player = client(server, 'ProtectedEdit')
+            player = client(server, 'BorderEdit')
             player.action(0, (0, 8, 8), 9)
-            player.expect_update((0, 8, 8), 1)
+            player.expect_update((0, 8, 8), 0)
             player.expect_ack(9)
             player.close()
             mine(server, first)
             assert server.stop(signal.SIGINT) == 0, server.output
         with RunningServer(executable, root) as server:
             assert_state(server, first, 0)
+            assert_state(server, (0, 8, 8), 0)
             player = client(server, 'Placer')
             player.send(0x42, varint(0) + position(8, 7, 8) + varint(1) +
                         struct.pack('>fff??', .5, 1., .5, False, False) + varint(3))
