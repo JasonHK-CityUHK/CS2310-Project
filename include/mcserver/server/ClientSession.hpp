@@ -4,12 +4,15 @@
 #include "mcserver/server/PlayerInventory.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <limits>
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace mcserver::server {
 
@@ -44,6 +47,10 @@ private:
     void sendInitialSpawn();
     void sendInitialChunks();
     void updateChunks(int32_t centerX, int32_t centerZ);
+    void updateChunkCredit();
+    void scheduleChunkBatch();
+    void sendNextChunk();
+    void failChunkStreaming(std::exception const& error);
     void handleMovement(double x, double y, double z, bool onGround);
     void sendPlayerPosition();
     void handleBlockPlacement(int hand, net::BlockPos const& target, int face);
@@ -56,11 +63,13 @@ private:
     std::shared_ptr<net::Connection> connection_;
     std::shared_ptr<World> world_;
     asio::steady_timer keepAliveTimer_;
+    asio::steady_timer chunkTimer_;
     std::string motd_;
     int32_t viewDistance_ = 10;
     std::string playerName_;
     std::array<std::byte, 16> playerUuid_{};
     bool hasPlayerUuid_ = false;
+    bool hasEnteredPlay_ = false;
     PlayerInventory inventory_;
     PlayerProfile profile_;
     double positionX_ = 0.5;
@@ -79,6 +88,17 @@ private:
     int32_t centerChunkX_ = std::numeric_limits<int32_t>::min();
     int32_t centerChunkZ_ = std::numeric_limits<int32_t>::min();
     std::set<std::pair<int32_t, int32_t>> sentChunks_;
+    std::vector<std::pair<int32_t, int32_t>> pendingChunks_;
+    size_t nextChunk_ = 0;
+    float chunksPerTick_ = 1.0f;
+    float chunkCredit_ = 1.0f;
+    std::chrono::steady_clock::time_point lastChunkTick_;
+    int32_t batchLimit_ = 0;
+    int32_t batchCount_ = 0;
+    bool sendingBatch_ = false;
+    bool awaitingBatchAck_ = false;
+    bool chunkTimerScheduled_ = false;
+    bool disconnected_ = false;
 };
 
 } // namespace mcserver::server

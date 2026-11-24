@@ -18,12 +18,14 @@ void Connection::close() {
     asio::error_code ignored;
     socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
     socket_.close(ignored);
+    auto onDisconnect = std::move(onDisconnect_);
+    onPacket_ = {};
+    if (onDisconnect) { onDisconnect(); }
 }
 
 void Connection::fail() {
     if (closed_) { return; }
     close();
-    if (onDisconnect_) { onDisconnect_(); }
 }
 
 void Connection::readNextLengthByte() {
@@ -74,7 +76,8 @@ void Connection::readBody(size_t length) {
             ByteReader reader{std::span<const std::byte>(bodyBuf_)};
             try {
                 int32_t packetId = reader.readVarInt();
-                if (onPacket_) { onPacket_(packetId, reader); }
+                auto onPacket = onPacket_;
+                if (onPacket) { onPacket(packetId, reader); }
             } catch (std::exception const&) {
                 fail();
                 return;

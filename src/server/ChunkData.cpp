@@ -96,6 +96,18 @@ std::vector<std::byte> makeFlatChunkData(World const& world, int32_t chunkX, int
         if (!chunk) { throw std::runtime_error("cannot send missing chunk"); }
         for (size_t section = 0; section < chunk->sections.size(); ++section) {
             auto const& states = chunk->sections[section];
+            int32_t firstState = states.front();
+            bool isAir = java->registry().isAir(firstState);
+            if ((firstState == 0 || !isAir) &&
+                std::all_of(states.begin() + 1, states.end(),
+                            [firstState](int32_t state) { return state == firstState; })) {
+                data.writeShort(isAir ? 0 : 4096);
+                data.writeShort(java->registry().hasFluid(firstState) ? 4096 : 0);
+                data.writeUByte(0);
+                data.writeVarInt(firstState);
+                writeBiomes(data, chunk->biomes[section], java->biomeBits());
+                continue;
+            }
             size_t blockCount = 0;
             size_t fluidCount = 0;
             for (auto state : states) {
@@ -194,7 +206,7 @@ void writeJavaChunkLight(net::ByteWriter& writer, nbt::CompoundTag const& chunk)
         for (size_t index = 0; index < arrays.size(); ++index) {
             if ((mask & (uint64_t{1} << index)) == 0) { continue; }
             writer.writeVarInt(2048);
-            for (uint8_t byte : arrays[index]) { writer.writeUByte(byte); }
+            writer.writeBytes(std::as_bytes(std::span{arrays[index]}));
         }
     };
     writeArrays(sky, skyMask);

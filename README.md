@@ -208,7 +208,8 @@ for 14 days.
 
 The server reads `server.properties` in its working directory. It supports
 `server-ip` (empty means all IPv4 interfaces), `server-port` (default 25565),
-`motd` (default `CS2310 minimal MC server`), and `level-name` (default `world`).
+`motd` (default `CS2310 minimal MC server`), `view-distance` (default 10,
+range 3-32), and `level-name` (default `world`).
 Other settings are ignored. `level-name` identifies an existing extracted world
 directory relative to the working directory. Native and Docker startup do not
 create worlds or generate missing chunks. Extract an existing world and set:
@@ -239,6 +240,8 @@ Implemented:
 - Offline UUID login without encryption or compression
 - Runtime registry and tag packets sourced from the official server data pack
 - Existing Java 26.3 overworld chunks streamed around the saved spawn and players
+- Nearby chunks sent first in client-paced, acknowledged batches, with the
+  remaining configured view streamed afterward
 - Saved biome palettes and light arrays in chunk packets
 - Player position, rotation, movement flags, teleport confirmation, player-loaded,
   and keep-alive packet handling
@@ -271,6 +274,10 @@ and Java LZ4 chunks, including external chunks for reading. External chunk
 writes are not supported. Other dimensions and unsupported world files are not changed.
 Back up a world before using it: opening a saved world in the vanilla client
 after edits has not yet been verified.
+
+Missing chunks are not generated. If a player's saved position is in a missing
+chunk, the server logs a warning and the client may remain on the loading
+screen until its timeout.
 
 Block items can be placed into air, and non-air blocks can be broken in
 supported loaded chunks. Edits are rejected at chunk boundaries and in chunks

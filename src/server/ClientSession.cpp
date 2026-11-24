@@ -8,6 +8,7 @@
 #include "mcserver/util/Logger.hpp"
 
 #include <iostream>
+#include <algorithm>
 #include <bit>
 #include <chrono>
 #include <cstdint>
@@ -68,6 +69,7 @@ constexpr int32_t kPlayClientboundBlockChangedAck = 0x04;
 constexpr int32_t kPlayClientboundBlockUpdate = 0x08;
 
 constexpr int32_t kPlayServerboundConfirmTeleportation = 0x00;
+constexpr int32_t kPlayServerboundChunkBatchReceived = 0x0B;
 constexpr int32_t kPlayServerboundKeepAlive = 0x1C;
 constexpr int32_t kPlayServerboundSetPlayerPosition = 0x1E;
 constexpr int32_t kPlayServerboundSetPlayerPositionAndRotation = 0x1F;
@@ -108,6 +110,7 @@ ClientSession::ClientSession(std::shared_ptr<net::Connection> connection, std::s
     : connection_(std::move(connection)),
       world_(std::move(world)),
     keepAliveTimer_(connection_->socket().get_executor()),
+    chunkTimer_(connection_->socket().get_executor()),
     motd_(std::move(motd)),
     viewDistance_(viewDistance) {}
 
@@ -115,9 +118,11 @@ void ClientSession::start() {
     auto self = shared_from_this();
     connection_->setPacketHandler([self](int32_t id, ByteReader& reader) { self->handlePacket(id, reader); });
     connection_->setDisconnectHandler([self]() {
+        self->disconnected_ = true;
         self->keepAliveTimer_.cancel();
+        self->chunkTimer_.cancel();
         self->world_->removePlayer(self->connection_.get());
-        if (self->hasPlayerUuid_) {
+        if (self->hasEnteredPlay_ && self->hasPlayerUuid_) {
             self->savePlayerProfile();
         }
     });
@@ -267,6 +272,19 @@ void ClientSession::handleConfiguration(int32_t packetId, ByteReader& reader) {
 void ClientSession::handlePlay(int32_t packetId, ByteReader& reader) {
     util::log(util::LogLevel::Debug, "received Play packet id " + std::to_string(packetId));
     switch (packetId) {
+    case kPlayServerboundChunkBatchReceived: {
+        float rate = reader.readFloat();
+        if (!awaitingBatchAck_ || !std::isfinite(rate)) {
+            util::log(util::LogLevel::Warning, "invalid chunk batch acknowledgment from " + playerName_);
+            connection_->close();
+            break;
+        }
+        updateChunkCredit();
+        chunksPerTick_ = std::clamp(rate, 0.01f, 16.0f);
+        awaitingBatchAck_ = false;
+        scheduleChunkBatch();
+        break;
+    }
     case kPlayServerboundConfirmTeleportation: {
         int32_t teleportId = reader.readVarInt();
         (void)reader.readDouble();
@@ -687,6 +705,7 @@ void ClientSession::enterPlay() {
             inventory_ = PlayerInventory{};
         }
     }
+    hasEnteredPlay_ = true;
     world_->addPlayer(connection_);
     sendPlayLogin();
     sendPlayerAbilities();
@@ -702,7 +721,7 @@ void ClientSession::sendPlayLogin() {
         body.writeVarInt(1);              // Dimension names array
         body.writeString("minecraft:overworld");
         body.writeVarInt(20);             // Max players (ignored)
-        body.writeVarInt(8);              // View distance
+        body.writeVarInt(viewDistance_);  // View distance
         body.writeVarInt(8);              // Simulation distance
         body.writeBool(false);             // Reduced debug info
         body.writeBool(true);              // Enable respawn screen
@@ -736,6 +755,7 @@ void ClientSession::sendInitialInventory() {
 }
 
 void ClientSession::sendInitialSpawn() {
+        lastChunkTick_ = std::chrono::steady_clock::now();
         if (auto* java = world_->javaWorld()) {
             auto const& level = java->level();
             if (!profile_.position.saved) {
@@ -803,6 +823,7 @@ void ClientSession::sendInitialSpawn() {
         ByteWriter finished;
         finished.writeVarInt(count);
         connection_->send(kPlayClientboundChunkBatchFinished, finished);
+        awaitingBatchAck_ = true;
     }
 
 void ClientSession::updateChunks(int32_t centerX, int32_t centerZ) {
@@ -822,30 +843,112 @@ void ClientSession::updateChunks(int32_t centerX, int32_t centerZ) {
         connection_->send(kPlayClientboundUnloadChunk, unload);
         iterator = sentChunks_.erase(iterator);
     }
-    ByteWriter start;
-    connection_->send(kPlayClientboundChunkBatchStart, start);
-    int32_t count = 0;
+    pendingChunks_.clear();
+    nextChunk_ = 0;
     for (int32_t chunkZ = centerZ - viewDistance_; chunkZ <= centerZ + viewDistance_; ++chunkZ) {
         for (int32_t chunkX = centerX - viewDistance_; chunkX <= centerX + viewDistance_; ++chunkX) {
-            auto chunk = world_->javaWorld()->chunk(chunkX, chunkZ);
-            if (sentChunks_.contains({chunkX, chunkZ}) || !chunk) { continue; }
-            ByteWriter body;
-            body.writeInt(chunkX);
-            body.writeInt(chunkZ);
-            body.writeVarInt(0);
-            auto data = makeFlatChunkData(*world_, chunkX, chunkZ);
-            body.writeVarInt(static_cast<int32_t>(data.size()));
-            body.writeBytes(data);
-            body.writeVarInt(0);
-            writeJavaChunkLight(body, chunk->data);
-            connection_->send(kPlayClientboundChunkData, body);
-            sentChunks_.insert({chunkX, chunkZ});
-            ++count;
+            if (!sentChunks_.contains({chunkX, chunkZ})) { pendingChunks_.emplace_back(chunkX, chunkZ); }
         }
     }
-    ByteWriter finished;
-    finished.writeVarInt(count);
-    connection_->send(kPlayClientboundChunkBatchFinished, finished);
+    std::sort(pendingChunks_.begin(), pendingChunks_.end(), [centerX, centerZ](auto const& left, auto const& right) {
+        auto distance = [centerX, centerZ](auto const& chunk) {
+            int32_t x = chunk.first - centerX;
+            int32_t z = chunk.second - centerZ;
+            return x * x + z * z;
+        };
+        auto leftDistance = distance(left);
+        auto rightDistance = distance(right);
+        return leftDistance == rightDistance ? left < right : leftDistance < rightDistance;
+    });
+    scheduleChunkBatch();
+}
+
+void ClientSession::updateChunkCredit() {
+    constexpr auto tick = std::chrono::milliseconds(50);
+    auto ticks = (std::chrono::steady_clock::now() - lastChunkTick_) / tick;
+    if (ticks <= 0) { return; }
+    chunkCredit_ = std::min(16.0f, chunkCredit_ +
+                           chunksPerTick_ * static_cast<float>(std::min<decltype(ticks)>(ticks, 1600)));
+    lastChunkTick_ += tick * ticks;
+}
+
+void ClientSession::scheduleChunkBatch() {
+    if (disconnected_ || sendingBatch_ || awaitingBatchAck_ || chunkTimerScheduled_ ||
+        nextChunk_ == pendingChunks_.size()) { return; }
+    updateChunkCredit();
+    chunkTimerScheduled_ = true;
+    if (chunkCredit_ >= 1.0f) { chunkTimer_.expires_after(std::chrono::milliseconds(0)); }
+    else { chunkTimer_.expires_at(lastChunkTick_ + std::chrono::milliseconds(50)); }
+    auto self = shared_from_this();
+    chunkTimer_.async_wait([self](asio::error_code error) {
+        self->chunkTimerScheduled_ = false;
+        if (error) { return; }
+        try {
+            self->updateChunkCredit();
+            if (self->chunkCredit_ < 1.0f) {
+                self->scheduleChunkBatch();
+                return;
+            }
+            self->batchLimit_ = static_cast<int32_t>(self->chunkCredit_);
+            self->batchCount_ = 0;
+            self->sendingBatch_ = true;
+            self->sendNextChunk();
+        } catch (std::exception const& exception) {
+            self->failChunkStreaming(exception);
+        }
+    });
+}
+
+void ClientSession::sendNextChunk() {
+    if (disconnected_) { return; }
+    if (nextChunk_ == pendingChunks_.size() || batchCount_ == batchLimit_) {
+        sendingBatch_ = false;
+        if (batchCount_ != 0) {
+            ByteWriter finished;
+            finished.writeVarInt(batchCount_);
+            connection_->send(kPlayClientboundChunkBatchFinished, finished);
+            chunkCredit_ -= static_cast<float>(batchCount_);
+            awaitingBatchAck_ = true;
+        }
+        return;
+    }
+
+    auto [chunkX, chunkZ] = pendingChunks_[nextChunk_++];
+    auto chunk = world_->javaWorld()->chunk(chunkX, chunkZ);
+    if (!chunk && chunkX == centerChunkX_ && chunkZ == centerChunkZ_) {
+        util::log(util::LogLevel::Warning, "player " + playerName_ + " is in a missing chunk");
+    }
+    if (chunk) {
+        ByteWriter body;
+        body.writeInt(chunkX);
+        body.writeInt(chunkZ);
+        body.writeVarInt(0);
+        auto data = makeFlatChunkData(*world_, chunkX, chunkZ);
+        body.writeVarInt(static_cast<int32_t>(data.size()));
+        body.writeBytes(data);
+        body.writeVarInt(0);
+        writeJavaChunkLight(body, chunk->data);
+        if (batchCount_ == 0) {
+            ByteWriter start;
+            connection_->send(kPlayClientboundChunkBatchStart, start);
+        }
+        connection_->send(kPlayClientboundChunkData, body);
+        sentChunks_.insert({chunkX, chunkZ});
+        ++batchCount_;
+    }
+    auto self = shared_from_this();
+    asio::post(connection_->socket().get_executor(), [self]() {
+        try {
+            self->sendNextChunk();
+        } catch (std::exception const& exception) {
+            self->failChunkStreaming(exception);
+        }
+    });
+}
+
+void ClientSession::failChunkStreaming(std::exception const& error) {
+    util::log(util::LogLevel::Error, "cannot stream chunks for " + playerName_ + ": " + error.what());
+    connection_->close();
 }
 
 } // namespace mcserver::server

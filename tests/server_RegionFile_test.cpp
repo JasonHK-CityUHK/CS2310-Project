@@ -147,6 +147,21 @@ TEST_CASE("Region reader rejects corrupted sectors and chunk metadata", "[region
     REQUIRE_THROWS(mcserver::server::loadRegionChunk(fixture.directory, 0, 0));
 }
 
+TEST_CASE("Region reader validates out-of-order sector allocations", "[region]") {
+    RegionFixture fixture;
+    auto data = regionData(0, 0);
+    data.resize(6 * 4096);
+    setInteger(data, 4, (4 << 8) | 1);
+    setInteger(data, 8, (3 << 8) | 1);
+    fixture.write("r.0.0.mca", data);
+    REQUIRE(mcserver::server::loadRegionChunk(fixture.directory, 0, 0));
+
+    setInteger(data, 4, (4 << 8) | 2);
+    setInteger(data, 8, (3 << 8) | 2);
+    fixture.write("r.0.0.mca", data);
+    REQUIRE_THROWS(mcserver::server::loadRegionChunk(fixture.directory, 0, 0));
+}
+
 TEST_CASE("Region reader handles gzip and external chunks", "[region]") {
     RegionFixture fixture;
     auto uncompressed = regionData(0, 0, 3);
@@ -286,12 +301,26 @@ TEST_CASE("Java-backed world places any registered block into air and persists i
         nbt::CompoundTag section{{"Y", static_cast<int8_t>(0)}, {"block_states", states}};
         nbt::CompoundTag airStates{{"palette", nbt::ListTag({"minecraft:air"})}};
         nbt::CompoundTag airSection{{"Y", static_cast<int8_t>(1)}, {"block_states", airStates}};
-        (*chunk)["sections"] = nbt::ListTag({section, airSection});
+        nbt::CompoundTag waterStates{{"palette", nbt::ListTag({"minecraft:water"})}};
+        nbt::CompoundTag waterSection{{"Y", static_cast<int8_t>(2)}, {"block_states", waterStates}};
+        (*chunk)["sections"] = nbt::ListTag({section, airSection, waterSection});
         mcserver::server::saveRegionChunk(lock, fixture.directory, 0, 0, *chunk);
     }
     {
         mcserver::server::World world(fixture.directory);
         REQUIRE(world.blockStateAt({8, 8, 8}) == 1);
+        auto packet = mcserver::server::makeFlatChunkData(world, 0, 0);
+        mcserver::net::ByteReader reader{std::span<const std::byte>(packet)};
+        for (int section = 0; section <= 6; ++section) {
+            bool stone = section == 4;
+            bool water = section == 6;
+            REQUIRE(reader.readShort() == (stone || water ? 4096 : 0));
+            REQUIRE(reader.readShort() == (water ? 4096 : 0));
+            REQUIRE(reader.readUByte() == 0);
+            REQUIRE(reader.readVarInt() == (water ? world.blockStateAt({8, 32, 8}) : stone ? 1 : 0));
+            REQUIRE(reader.readUByte() == 0);
+            REQUIRE(reader.readVarInt() == 41);
+        }
         REQUIRE_FALSE(world.setBlockToAir({0, 8, 8}));
         auto poiDirectory = fixture.directory / "dimensions/minecraft/overworld/poi";
         std::filesystem::create_directories(poiDirectory);

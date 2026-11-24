@@ -56,11 +56,12 @@ class Buffer:
 
 
 class Client:
-    def __init__(self, port, name, expected_spawn=None, expected_chunks=9):
+    def __init__(self, port, name, expected_spawn=None, expected_chunks=9, auto_ack=True):
         self.socket = socket.create_connection(('127.0.0.1', port), timeout=5)
         self.send(0, varint(777) + text('localhost') + struct.pack('>H', port) + varint(2))
         self.expected_spawn = expected_spawn
         self.expected_chunks = expected_chunks
+        self.auto_ack = auto_ack
         self.send(0, text(name) + bytes(16))
         assert self.receive()[0] == 2, 'login success'
         self.send(3)
@@ -72,8 +73,18 @@ class Client:
         self.chunks = {}
         self.current_position = (.5, 1., .5)
         self.abilities_flags = None
+        self.view_distance = None
+        self.chunk_order = []
+        batch_count = 0
         while True:
             packet_id, body = self.receive()
+            if packet_id == 0x32:
+                login = Buffer(body)
+                login.read(5)
+                for _ in range(login.integer()):
+                    login.read(login.integer())
+                login.integer()
+                self.view_distance = login.integer()
             if packet_id == 0x41:
                 self.abilities_flags = body[0]
             if packet_id == 0x49:
@@ -85,8 +96,15 @@ class Client:
                 x, z = struct.unpack('>ii', chunk.read(8))
                 assert chunk.integer() == 0, 'optional heightmaps'
                 self.chunks[x, z] = chunk.read(chunk.integer())
+                self.chunk_order.append((x, z))
+                batch_count += 1
             if packet_id == 0x0B:
-                break
+                assert Buffer(body).integer() == batch_count, 'incorrect chunk batch size'
+                batch_count = 0
+                if self.auto_ack:
+                    self.send(0x0B, struct.pack('>f', 16.0))
+                if self.expected_chunks is None or len(self.chunks) >= self.expected_chunks:
+                    break
         if self.expected_chunks is not None:
             assert len(self.chunks) == self.expected_chunks
         if self.expected_spawn is not None:

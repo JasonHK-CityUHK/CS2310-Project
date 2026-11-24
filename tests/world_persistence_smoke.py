@@ -3,6 +3,7 @@ import gzip
 import json
 import os
 from pathlib import Path
+import select
 import signal
 import socket
 import struct
@@ -154,6 +155,103 @@ def assert_state(server, point, expected):
         player.close()
 
 
+def assert_chunk_streaming(server):
+    player = Client(server.port, 'StreamingTester', expected_spawn=(8.5, 8., 8.5),
+                    expected_chunks=None, auto_ack=False)
+    try:
+        assert player.view_distance == 3, 'login view distance must match server configuration'
+        assert player.chunk_order == [(0, 0)], 'player chunk must be sent first'
+        assert not select.select([player.socket], [], [], .2)[0], 'batch sent without acknowledgment'
+        assert_status(server)
+
+        player.move(72.5, 8., 8.5)
+        centers = []
+        unloaded = []
+        while len(centers) < 4 or not unloaded:
+            packet_id, body = player.receive()
+            if packet_id == 0x60:
+                coordinates = Buffer(body)
+                centers.append((coordinates.integer(), coordinates.integer()))
+            elif packet_id == 0x26:
+                z, x = struct.unpack('>ii', body)
+                unloaded.append((x, z))
+            else:
+                raise AssertionError(f'unexpected packet before acknowledgment: {packet_id}')
+        assert centers[-1] == (4, 0)
+        assert unloaded == [(0, 0)]
+
+        player.send(0x0B, struct.pack('>f', 1000.0))
+        chunks = []
+        started = False
+        while True:
+            packet_id, body = player.receive()
+            if packet_id == 0x0C:
+                assert not started
+                started = True
+            elif packet_id == 0x2E:
+                assert started
+                chunks.append(struct.unpack('>ii', body[:8]))
+            elif packet_id == 0x0B:
+                assert started and Buffer(body).integer() == len(chunks)
+                break
+            else:
+                raise AssertionError(f'unexpected packet in chunk batch: {packet_id}')
+        assert chunks[0] == (3, 0), 'nearest existing chunk should follow a missing player chunk'
+        assert 1 <= len(chunks) <= 16
+        assert len(set(chunks)) == len(chunks)
+        assert all(1 <= x <= 3 and -3 <= z <= 3 for x, z in chunks)
+        assert not select.select([player.socket], [], [], .2)[0], 'second batch was not flow-controlled'
+        player.send(0x0B, struct.pack('>f', float('nan')))
+        assert player.socket.recv(1) == b'', 'non-finite chunk rate must disconnect'
+    finally:
+        player.close()
+    slow = Client(server.port, 'SlowStreamingTester', expected_chunks=None, auto_ack=False)
+    try:
+        slow.send(0x0B, struct.pack('>f', 0.0))
+        if select.select([slow.socket], [], [], .3)[0]:
+            while True:
+                packet_id, body = slow.receive()
+                if packet_id == 0x0B:
+                    slow.send(0x0B, struct.pack('>f', 0.0))
+                    break
+        assert not select.select([slow.socket], [], [], .3)[0], 'zero rate was not bounded'
+    finally:
+        slow.close()
+
+    delayed = Client(server.port, 'DelayedBatchTester', expected_chunks=None, auto_ack=False)
+    try:
+        time.sleep(.26)
+        delayed.send(0x0B, struct.pack('>f', 1.0))
+        count = 0
+        while True:
+            packet_id, body = delayed.receive()
+            if packet_id == 0x2E:
+                count += 1
+            elif packet_id == 0x0B:
+                assert Buffer(body).integer() == count
+                break
+        assert count >= 4, 'chunk credit did not accrue while awaiting acknowledgment'
+    finally:
+        delayed.close()
+    assert_status(server)
+
+
+def assert_incomplete_login_does_not_save_profile(server):
+    profile_dir = server.root / 'selected-world/playerdata'
+    before = set(profile_dir.glob('*.json'))
+    with socket.create_connection(('127.0.0.1', server.port), timeout=5) as connection:
+        def send(packet_id, body=b''):
+            packet = varint(packet_id) + body
+            connection.sendall(varint(len(packet)) + packet)
+
+        send(0, varint(777) + text('localhost') + struct.pack('>H', server.port) + varint(2))
+        send(0, text('IncompleteLogin') + bytes(16))
+        send(1)
+        while connection.recv(4096):
+            pass
+    assert set(profile_dir.glob('*.json')) == before, 'incomplete login saved a player profile'
+
+
 def run(executable):
     executable = str(Path(executable).resolve())
     with tempfile.TemporaryDirectory(prefix='mcserver-persistence-') as directory:
@@ -164,6 +262,8 @@ def run(executable):
         second = (11, 8, 8)
         with RunningServer(executable, root) as server:
             assert_status(server)
+            assert_incomplete_login_does_not_save_profile(server)
+            assert_chunk_streaming(server)
             player = client(server, 'ProtectedEdit')
             player.action(0, (0, 8, 8), 9)
             player.expect_update((0, 8, 8), 1)
@@ -193,12 +293,12 @@ def run(executable):
             player = client(server, 'Mover')
             player.move(17.5, 8., 8.5)
             unloaded = 0
-            while True:
+            while unloaded < 7:
                 packet_id, body = player.receive()
                 if packet_id == 0x26:
                     unloaded += 1
                 if packet_id == 0x0B:
-                    break
+                    player.send(0x0B, struct.pack('>f', 16.0))
             assert unloaded == 7, 'expected old chunks to unload after movement'
             player.close()
         assert not (root / 'world/flat-world.json').exists()

@@ -8,6 +8,7 @@
 #define XXH_NAMESPACE MCSERVER_
 #include <xxhash.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -178,12 +179,14 @@ std::optional<nbt::CompoundTag> loadRegionChunk(std::filesystem::path const& wor
         if (offset < 2 || count == 0 || static_cast<uint64_t>(offset) + count > size / kSectorSize) {
             throw std::runtime_error("invalid region sector allocation: " + path.string());
         }
-        for (auto const& [otherOffset, otherCount] : allocations) {
-            if (offset < otherOffset + otherCount && otherOffset < offset + count) {
-                throw std::runtime_error("overlapping region sector allocations: " + path.string());
-            }
-        }
         allocations.emplace_back(offset, count);
+    }
+    std::sort(allocations.begin(), allocations.end());
+    for (size_t index = 1; index < allocations.size(); ++index) {
+        auto [previousOffset, previousCount] = allocations[index - 1];
+        if (allocations[index].first < previousOffset + previousCount) {
+            throw std::runtime_error("overlapping region sector allocations: " + path.string());
+        }
     }
     uint32_t localX = static_cast<uint32_t>(chunkX - regionX * 32);
     uint32_t localZ = static_cast<uint32_t>(chunkZ - regionZ * 32);

@@ -118,3 +118,25 @@ TEST_CASE("Java chunk lighting sends empty block light and inherited skylight", 
     REQUIRE(reader.readVarInt() == 0);
     REQUIRE(reader.remaining() == 0);
 }
+
+TEST_CASE("Java chunk lighting preserves block light array bytes", "[chunk]") {
+    std::vector<uint8_t> blockLight(2048);
+    for (size_t index = 0; index < blockLight.size(); ++index) {
+        blockLight[index] = static_cast<uint8_t>(index);
+    }
+    nbt::CompoundTag section{{"Y", static_cast<int8_t>(0)}, {"BlockLight", nbt::ByteArrayTag(blockLight)}};
+    nbt::CompoundTag chunk{{"sections", nbt::ListTag({section})}};
+    net::ByteWriter writer;
+    server::writeJavaChunkLight(writer, chunk);
+    net::ByteReader reader{std::span<const std::byte>(writer.data())};
+    for (int mask = 0; mask < 4; ++mask) { (void)reader.readByteArray(reader.readVarInt()); }
+    int32_t skyCount = reader.readVarInt();
+    for (int32_t index = 0; index < skyCount; ++index) { (void)reader.readByteArray(reader.readVarInt()); }
+    REQUIRE(reader.readVarInt() == 1);
+    auto encoded = reader.readByteArray(reader.readVarInt());
+    REQUIRE(encoded.size() == blockLight.size());
+    for (size_t index = 0; index < encoded.size(); ++index) {
+        REQUIRE(encoded[index] == static_cast<std::byte>(blockLight[index]));
+    }
+    REQUIRE(reader.remaining() == 0);
+}

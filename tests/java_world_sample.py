@@ -38,7 +38,7 @@ def test_java_lz4(root, server_executable):
     region[8192:12288] = record.ljust(4096, b'\0')
     region_path.write_bytes(region)
     with RunningServer(server_executable, fixture_root) as server:
-        player = Client(server.port, 'Lz4Tester', expected_spawn=(8.5, 8., 8.5))
+        player = Client(server.port, 'Lz4Tester', expected_spawn=(8.5, 8., 8.5), expected_chunks=49)
         try:
             assert chunk_state(player.chunks[0, 0], 8, 8, y=8)[0] == 1
             player.action(0, (8, 8, 8), 1)
@@ -47,7 +47,7 @@ def test_java_lz4(root, server_executable):
         finally:
             player.close()
     with RunningServer(server_executable, fixture_root) as server:
-        player = Client(server.port, 'Lz4Reload', expected_spawn=(8.5, 8., 8.5))
+        player = Client(server.port, 'Lz4Reload', expected_spawn=(8.5, 8., 8.5), expected_chunks=49)
         try:
             assert chunk_state(player.chunks[0, 0], 8, 8, y=8)[0] == 0
         finally:
@@ -69,7 +69,7 @@ def main(archive, executable, server_executable=None):
         if server_executable:
             (root / 'Sample').rename(root / 'selected-world')
             with RunningServer(server_executable, root) as server:
-                player = Client(server.port, 'SampleTester', expected_spawn=(-31.5, 69., .5), expected_chunks=None)
+                player = Client(server.port, 'SampleTester', expected_spawn=(-31.5, 69., .5), expected_chunks=49)
                 try:
                     assert (-2, 0) in player.chunks, 'spawn chunk was not sent'
                     state, count = chunk_state(player.chunks[-2, 0], -32, 0, y=69)
