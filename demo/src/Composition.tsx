@@ -478,7 +478,7 @@ export const MyComponent: React.FC<Props> = () => {
           loop
           volume={interpolate(
             frame,
-            [0, 1 * fps, 16 * fps, 17 * fps, 36 * fps + 460, 57 * fps, 1800],
+            [0, 1 * fps, 756, 774, 1650, 1668, 1800],
             [0, 0.34, 0.34, 0.12, 0.12, 0.34, 0],
             {
               extrapolateLeft: "clamp",
